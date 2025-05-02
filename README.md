@@ -24,7 +24,7 @@ graph TD
     A[AI Model] <-->|MCP Protocol| B[MCP Server]
     B -->|Tools| C[Tool: hello]
     B -->|Tools| D[Tool: echo]
-    B -->|Resources| E[Resource: greeting://{name}]
+    B -->|Resources| E["Resource: greeting://name"]
     
     subgraph "MCP Server Components"
         B

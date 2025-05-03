@@ -1,0 +1,26 @@
+{
+  "mcpServers": {
+    "retail-product-server": {
+      "command": "docker",
+      "args": [
+        "exec",
+        "-i",
+        "retail-product-server",
+        "node",
+        "index.js"
+      ],
+      "env": {}
+    },
+    "retail-order-server": {
+      "command": "docker",
+      "args": [
+        "exec",
+        "-i",
+        "retail-order-server",
+        "node",
+        "index.js"
+      ],
+      "env": {}
+    }
+  }
+}

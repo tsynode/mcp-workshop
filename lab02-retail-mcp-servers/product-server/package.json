@@ -1,0 +1,22 @@
+{
+  "name": "retail-product-server",
+  "version": "1.0.0",
+  "description": "MCP product information server for retail use case",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "keywords": [
+    "mcp",
+    "claude",
+    "anthropic",
+    "retail"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.8.0",
+    "zod": "^3.22.4"
+  }
+}

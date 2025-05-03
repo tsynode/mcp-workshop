@@ -1,0 +1,1 @@
+{"result":{"content":[{"type":"text","text":"{\n  \"message\": \"Order created successfully\",\n  \"order\": {\n    \"orderId\": \"ord-1746299911462-u24rx\",\n    \"productId\": \"p001\",\n    \"quantity\": 2,\n    \"status\": \"pending\",\n    \"createdAt\": \"2025-05-03T19:18:31.462Z\",\n    \"totalPrice\": 0\n  }\n}"}]},"jsonrpc":"2.0","id":"1"}

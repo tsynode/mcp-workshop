@@ -1,0 +1,16 @@
+version: '3.8'
+
+services:
+  product-server:
+    build: ./product-server
+    container_name: retail-product-server
+    stdin_open: true
+    tty: true
+    restart: unless-stopped
+
+  order-server:
+    build: ./order-server
+    container_name: retail-order-server
+    stdin_open: true
+    tty: true
+    restart: unless-stopped

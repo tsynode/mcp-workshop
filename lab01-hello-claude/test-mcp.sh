@@ -48,8 +48,9 @@ print_header "TEST 1: List Tools"
 # First check if our test container is running
 if ! docker ps --filter "name=test-mcp" --format "{{.Names}}" | grep -q "test-mcp"; then
   print_info "Starting test container..."
-  docker run -d --name test-mcp hello-mcp-server sleep infinity
+  docker run -d --name test-mcp hello-claude-server sleep infinity
 fi
+print_info "Note: First run will download the MCP Inspector package using npx"
 print_info "Running: docker exec test-mcp bash -c 'npx @modelcontextprotocol/inspector --cli --method tools/list node index.js'"
 TOOLS_RESULT=$(docker exec test-mcp bash -c 'npx @modelcontextprotocol/inspector --cli --method tools/list node index.js')
 
@@ -151,11 +152,12 @@ if [ $RUN_INSPECTOR -eq 1 ]; then
   # Create a test container if it doesn't exist
   if ! docker ps --filter "name=test-mcp" --format "{{.Names}}" | grep -q "test-mcp"; then
     print_info "Starting test container for inspector tests..."
-    docker run -d --name test-mcp hello-mcp-server sleep infinity
+    docker run -d --name test-mcp hello-claude-server sleep infinity
   fi
   
   print_header "TESTING WITH INSPECTOR CLI"
   print_info "Running MCP Inspector CLI in Docker container..."
+  print_info "Note: First run will download the MCP Inspector package using npx"
   
   print_info "\n--- Testing tools/list ---"
   docker exec test-mcp npx @modelcontextprotocol/inspector --cli --method tools/list node index.js
@@ -186,4 +188,4 @@ echo -e "5. Resource access (resources/get)"
 
 print_header "TEST COMPLETE"
 echo -e "${GREEN}To run the MCP server interactively, use:${NC}"
-echo -e "docker run -i --rm hello-mcp-server"
+echo -e "docker run -i --rm hello-claude-server"

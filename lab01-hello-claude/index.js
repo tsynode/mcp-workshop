@@ -7,7 +7,7 @@ import { z } from "zod";
 
 // Create an MCP server with configuration parameters
 const server = new McpServer({
-  name: "Hello World",      // Name of the server displayed to users
+  name: "Hello Claude",     // Name of the server displayed to Claude Desktop
   version: "1.0.0",         // Version of this server implementation
   protocolVersion: "2024-03-01"  // MCP protocol version being implemented
 });
@@ -46,7 +46,7 @@ server.resource(
 );
 
 // Log startup
-console.error('Hello World MCP server starting...');
+console.error('Hello Claude MCP server starting...');
 
 // Initialize the transport layer for communication
 const transport = new StdioServerTransport();  // Use stdin/stdout for communication (works with CLI tools)

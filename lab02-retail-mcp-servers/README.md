@@ -149,7 +149,7 @@ docker-compose down --rmi all
 
 This lab demonstrated multiple MCP servers working together locally. Next steps:
 
-- **Lab 3**: Deploy these servers to AWS Lambda
-- **Lab 4**: Connect to production AI services like Amazon Bedrock
+- **Lab 03**: Deploy MCP servers to the cloud (AWS)
+- **Lab 04**: Connect MCP servers to production AI services (Amazon Bedrock)
 
 **Key Insight**: The separation of concerns (product vs order servers) mirrors microservice architecture, making it easy to scale and maintain each service independently.

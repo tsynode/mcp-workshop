@@ -11,7 +11,7 @@ By the end of this lab, you will:
 - Understand how MCP enables AI portability across different platforms
 - Recognize how this pattern applies to real-world systems
 
-## Lab 01 MCP Architecture
+## Architecture Overview
 
 In this lab, we implement a specific instance of the MCP architecture:
 
@@ -201,7 +201,7 @@ This workshop uses Claude Desktop as the primary testing environment for MCP ser
 3. **Universal Compatibility**: If your MCP server works with Claude Desktop, it will work with any Agentic AI that implements the MCP standard (Amazon Bedrock, OpenAI, Google Gemini, etc.)
 
 
-### Reality Check
+### Real-World Application
 
 🌍 **Real-World Context**:
 - These simple tools demonstrate the MCP pattern
@@ -227,6 +227,18 @@ docker rmi hello-claude-server
 - `index.js` - Server implementation with tool and resource definitions
 - `package.json` - Node.js dependencies and project metadata
 - `Dockerfile` - Docker configuration for containerization
+
+## Common Issues
+
+1. **Server not appearing in Claude Desktop**: Ensure you've restarted Claude after copying the config
+2. **Connection errors**: Check that the container is running with `docker ps`
+3. **Tool not found**: Verify the server logs don't show any startup errors
+
+## Project Files
+
+- `index.js` - Server implementation with tool and resource definitions
+- `package.json` - Node.js dependencies and project metadata
+- `Dockerfile` - Docker configuration for containerization
 - `test-mcp.sh` - Comprehensive test script
 - `claude_desktop_config.json` - Configuration template for Claude Desktop integration
 
@@ -234,7 +246,8 @@ docker rmi hello-claude-server
 
 This lab introduced the fundamentals of MCP. In upcoming labs, you'll learn:
 
-- **Lab 2**: Build multiple MCP servers that work together (product catalog + order management)
+- **Lab 02**: Build multiple MCP servers that work together (product catalog + order management)
+- **Future Labs**: Deploy MCP servers to cloud environments and connect to production AI services
 - **Lab 3**: Deploy MCP servers to the cloud (AWS)
 - **Lab 4**: Connect MCP servers to production AI services (Amazon Bedrock)
 

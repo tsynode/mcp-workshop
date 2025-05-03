@@ -21,21 +21,25 @@ This standardized approach allows AI capabilities to be portable across differen
 ## Lab Structure
 
 - **Lab 01: Hello Claude** - A minimal MCP server with Claude Desktop integration for interactive testing
+- **Lab 02: Retail MCP Servers** - Multiple MCP servers working together for a retail use case
 - *(More labs will be added in the future)*
 
 ## Getting Started
 
-Each lab directory contains its own README with specific instructions. Start with Lab 01 to learn the basics of MCP server implementation and Claude Desktop integration.
+Each lab directory contains its own README with specific instructions:
 
+1. Start with **Lab 01** to learn the basics of MCP server implementation and Claude Desktop integration:
 ```bash
 cd lab01-hello-claude
 # Be sure to read the README.md in this directory for detailed instructions
 cat README.md
 ```
 
-The lab01 README contains comprehensive instructions for building, running, and testing your MCP server with Claude Desktop, along with explanations of each component.
-
-
+2. Continue with **Lab 02** to explore how multiple MCP servers can work together:
+```bash
+cd lab02-retail-mcp-servers
+cat README.md
+```
 
 ## Resources
 

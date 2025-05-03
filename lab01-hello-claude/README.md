@@ -11,25 +11,49 @@ By the end of this lab, you will:
 - Understand how MCP enables AI portability across different platforms
 - Recognize how this pattern applies to real-world systems
 
-## Understanding MCP Architecture
+## Lab 01 MCP Architecture
 
-Before we start coding, let's understand the MCP architecture:
+In this lab, we implement a specific instance of the MCP architecture:
 
-- **Host** (Claude Desktop): The application that needs to perform actions
-- **Client**: Part of the host that manages connections to MCP servers  
-- **Server** (Your Docker container): Provides tools that the AI can use
+```mermaid
+graph TD
+    A[Host: Claude Desktop] <-->|MCP Protocol| B[Server: hello-claude-server]
+    B -->|Tools| C[hello]
+    B -->|Tools| D[echo]
+    B -->|Tools| G[get-system-info]
+    B -->|Resources| E["greeting://{name}"]
+    
+    subgraph "MCP Server Components"
+        B
+        C
+        D
+        G
+        E
+    end
+    
+    subgraph "Transport Layer"
+        F[stdio]
+    end
+    
+    B <--> F
+```
+
+In our lab implementation:
+
+- **Host**: Claude Desktop - The AI application that needs to perform actions
+- **Client**: Built into Claude Desktop - Manages connections to our MCP server
+- **Server**: Our Docker container (`hello-claude-server`) - Provides tools and resources
+- **Tools**: `hello`, `echo`, and `get-system-info` - Functions Claude can call
+- **Resources**: `greeting://{name}` - Data Claude can access via URI templates
+- **Transport**: stdio - The communication channel between Claude and our server
 
 This architecture is universal - while we're using Claude Desktop today, the same pattern works with Amazon Bedrock, OpenAI, or any other AI service that supports MCP.
 
 ## Requirements
 
-- **Docker**: All code runs in containers, no local dependencies needed
+- **Docker**: All code runs in containers for consistent environment
 - **Claude Desktop**: For interactive testing with the AI agent
-- **Internet Connection**: The first test run will download the MCP Inspector package via npx
-
-## What is MCP?
-
-The Model Context Protocol (MCP) is a standardized way for AI models to interact with external tools and data sources. This implementation serves as a minimal working example that can be used as a foundation for more complex MCP servers.
+- **Internet Connection**: The first test run will download the MCP Inspector package via npx inside the Docker container
 
 ## Features
 
@@ -164,6 +188,18 @@ Once configured, start a new conversation in Claude Desktop and try these exampl
 - "Use the hello tool to greet me in Spanish"
 
 Claude will connect to your MCP server, discover the available tools, and use them as requested. You'll see the entire interaction flow, including tool discovery, parameter validation, and response handling.
+
+
+## Why Claude Desktop for Testing?
+
+This workshop uses Claude Desktop as the primary testing environment for MCP servers because:
+
+1. **Intuitive User Experience**: AI assistants provide a natural interface for testing tools and resources, eliminating the need for custom UIs or complex CLI commands
+
+2. **Real-world Usage Pattern**: This reflects the emerging trend where users prefer to interact with outside world through the AI assistants they already know and love.
+
+3. **Universal Compatibility**: If your MCP server works with Claude Desktop, it will work with any Agentic AI that implements the MCP standard (Amazon Bedrock, OpenAI, Google Gemini, etc.)
+
 
 ### Reality Check
 

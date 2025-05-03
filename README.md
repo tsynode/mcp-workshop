@@ -1,50 +1,27 @@
 # Model Context Protocol (MCP) Labs
 
-This repository contains a series of labs for learning how to build and use Model Context Protocol (MCP) servers and integrate them with AI Agents. In our labs, we will use Claude Desktop as the AI Agent.
+This repository contains a series of labs for learning how to build and use Model Context Protocol (MCP) servers and integrate them with AI Agents.
+
+## What is MCP?
+
+The Model Context Protocol (MCP) is a standardized protocol that enables AI models to interact with external tools and data sources. MCP follows a client-server architecture:
+
+- **Host**: The application that needs AI capabilities
+- **Client**: Part of the host that manages connections to MCP servers
+- **Server**: Provides tools and resources that the AI can use
+
+MCP enables AI models to:
+
+- **Execute Tools**: Perform actions like searching, calculating, or accessing external systems
+- **Access Resources**: Retrieve data from structured sources via URI templates
+- **Get Contextual Information**: Receive additional context to improve responses
+
+This standardized approach allows AI capabilities to be portable across different platforms and models, creating a consistent interface for AI-powered functionality.
 
 ## Lab Structure
 
 - **Lab 01: Hello Claude** - A minimal MCP server with Claude Desktop integration for interactive testing
 - *(More labs will be added in the future)*
-
-## What is MCP?
-
-The Model Context Protocol (MCP) is a standardized way for AI models to interact with external tools and data sources. MCP enables AI models like Claude to:
-
-- Access data through resources
-- Perform actions through tools
-- Get contextual prompts
-
-### MCP Architecture
-
-The diagram below illustrates the basic architecture of an MCP server and how it interacts with AI models:
-
-```mermaid
-graph TD
-    A[AI Agent] <-->|MCP Protocol| B[MCP Server]
-    B -->|Tools| C[Tool: hello]
-    B -->|Tools| D[Tool: echo]
-    B -->|Resources| E["Resource: greeting://name"]
-    
-    subgraph "MCP Server Components"
-        B
-        C
-        D
-        E
-    end
-    
-    subgraph "Transport Layer"
-        F[stdio Transport]
-    end
-    
-    B <--> F
-```
-
-In this architecture:
-- The AI Agent communicates with the MCP server using the standardized protocol
-- The server exposes tools that can perform actions
-- The server provides resources that can be accessed via URI templates
-- Communication happens through a transport layer (e.g., stdio for CLI tools)
 
 ## Getting Started
 
@@ -58,21 +35,7 @@ cat README.md
 
 The lab01 README contains comprehensive instructions for building, running, and testing your MCP server with Claude Desktop, along with explanations of each component.
 
-## Requirements
 
-- Docker (all code runs in containers, no local dependencies needed)
-- Claude Desktop (for interactive testing)
-- Internet connection (first run downloads MCP Inspector via npx)
-
-## Why Claude Desktop for Testing?
-
-This workshop uses Claude Desktop as the primary testing environment for MCP servers because:
-
-1. **Intuitive User Experience**: AI assistants provide a natural interface for testing tools and resources, eliminating the need for custom UIs or complex CLI commands
-
-2. **Real-world Usage Pattern**: This reflects the emerging trend where users prefer to interact with outside world through the AI assistants they already know and love.
-
-3. **Universal Compatibility**: If your MCP server works with Claude Desktop, it will work with any Agentic AI that implements the MCP standard (Amazon Bedrock, OpenAI, Google Gemini, etc.)
 
 ## Resources
 

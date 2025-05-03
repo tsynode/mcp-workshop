@@ -32,6 +32,28 @@ server.tool(
   })
 );
 
+// Add a system info tool that hints at real-world usage
+server.tool(
+  "get-system-info",                // Tool name
+  "Get system information (simulated)",  // Tool description
+  {},                               // No parameters required
+  async () => {                     // Handler function
+    // In production, this might query a database or external service
+    const info = {
+      timestamp: new Date().toISOString(),
+      version: "1.0.0",
+      environment: process.env.NODE_ENV || "development"
+    };
+    
+    return {
+      content: [{
+        type: "text",
+        text: `System Info:\n${JSON.stringify(info, null, 2)}`
+      }]
+    };
+  }
+);
+
 // Add a dynamic greeting resource with a URI template
 server.resource(
   "greeting",                                      // Resource name

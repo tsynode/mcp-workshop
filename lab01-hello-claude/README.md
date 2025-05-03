@@ -4,13 +4,22 @@ A minimal Model Context Protocol (MCP) server implementation with Claude Desktop
 
 ## Learning Objectives
 
-- Understand the basic structure of an MCP server
-- Learn how to define tools with required and optional parameters
-- Create dynamic resource templates with URI patterns
-- Set up a simple transport layer for MCP communication
-- Test MCP functionality using standard tools
-- Connect your MCP server to Claude Desktop for interactive testing
-- Experience how AI agents use MCP tools in real-time
+By the end of this lab, you will:
+- Understand the MCP architecture (host, client, server)
+- Build and test a simple MCP server with multiple tools
+- Connect an MCP server to Claude Desktop
+- Understand how MCP enables AI portability across different platforms
+- Recognize how this pattern applies to real-world systems
+
+## Understanding MCP Architecture
+
+Before we start coding, let's understand the MCP architecture:
+
+- **Host** (Claude Desktop): The application that needs to perform actions
+- **Client**: Part of the host that manages connections to MCP servers  
+- **Server** (Your Docker container): Provides tools that the AI can use
+
+This architecture is universal - while we're using Claude Desktop today, the same pattern works with Amazon Bedrock, OpenAI, or any other AI service that supports MCP.
 
 ## Requirements
 
@@ -27,6 +36,7 @@ The Model Context Protocol (MCP) is a standardized way for AI models to interact
 - **Tools**: 
   - `hello`: Says hello to someone (demonstrates optional parameters)
   - `echo`: Echoes back a message (demonstrates required parameters)
+  - `get-system-info`: Returns system information (demonstrates real-world patterns)
 - **Resource Template**: `greeting://{name}` - Dynamically generates greetings
 - **Protocol**: MCP 2024-03-01 with stdio transport for compatibility
 
@@ -113,7 +123,7 @@ The primary focus of this lab is to experience how Claude Desktop interacts with
 docker build -t hello-claude-server .
 
 # Start a container that stays running in the background
-docker run -d --name claude-mcp-server hello-claude-server sleep infinity
+docker run -d --name hello-claude-server hello-claude-server sleep infinity
 ```
 
 2. **Configure Claude Desktop**:
@@ -145,18 +155,30 @@ Once configured, start a new conversation in Claude Desktop and try these exampl
 - "What MCP tools do you have access to?"
 - "What parameters does the hello tool accept?"
 
+#### System Information
+- "What system information can you get?"
+- "Check the current system status"
+
 #### Creative Examples
 - "Use the echo tool to repeat this haiku about AI"
 - "Use the hello tool to greet me in Spanish"
 
 Claude will connect to your MCP server, discover the available tools, and use them as requested. You'll see the entire interaction flow, including tool discovery, parameter validation, and response handling.
 
+### Reality Check
+
+🌍 **Real-World Context**:
+- These simple tools demonstrate the MCP pattern
+- In production, tools would connect to databases, APIs, and other services
+- This server could run anywhere - your laptop, AWS Lambda, Azure Functions, or your own data center
+- The same MCP server can be used by different AI services, not just Claude Desktop
+
 ### Cleanup
 
 ```bash
 # Stop and remove the MCP server container
-docker stop claude-mcp-server
-docker rm claude-mcp-server
+docker stop hello-claude-server
+docker rm hello-claude-server
 
 # Remove the Docker image (optional)
 docker rmi hello-claude-server
@@ -171,6 +193,16 @@ docker rmi hello-claude-server
 - `Dockerfile` - Docker configuration for containerization
 - `test-mcp.sh` - Comprehensive test script
 - `claude_desktop_config.json` - Configuration template for Claude Desktop integration
+
+## What's Next?
+
+This lab introduced the fundamentals of MCP. In upcoming labs, you'll learn:
+
+- **Lab 2**: Build multiple MCP servers that work together (product catalog + order management)
+- **Lab 3**: Deploy MCP servers to the cloud (AWS)
+- **Lab 4**: Connect MCP servers to production AI services (Amazon Bedrock)
+
+**Key Insight**: The pattern you learned here is universal. Any AI service that supports MCP can connect to any MCP server, making your tools truly portable across different AI platforms.
 
 ## Resources
 

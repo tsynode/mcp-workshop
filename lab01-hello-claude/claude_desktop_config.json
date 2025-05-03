@@ -2,7 +2,7 @@
   "mcpServers": {
     "hello-claude-server": {
       "command": "docker",
-      "args": ["exec", "-i", "claude-mcp-server", "node", "index.js"],
+      "args": ["exec", "-i", "hello-claude-server", "node", "index.js"],
       "env": {}
     }
   }

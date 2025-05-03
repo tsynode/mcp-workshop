@@ -86,7 +86,7 @@ fi
 print_header "TEST 3: Call Hello Tool"
 
 print_info "Running direct JSON-RPC request to call the hello tool (via Docker)"
-HELLO_RESULT=$(docker exec -i test-mcp bash -c "echo '{\"jsonrpc\":\"2.0\",\"id\":\"1\",\"method\":\"tools/call\",\"params\":{\"name\":\"hello\",\"arguments\":{\"name\":\"Shell Script\"}}}' | node index.js" | grep -v "Hello World MCP server starting" | grep -v "Server connected to stdio transport")
+HELLO_RESULT=$(docker exec -i test-mcp bash -c "echo '{\"jsonrpc\":\"2.0\",\"id\":\"1\",\"method\":\"tools/call\",\"params\":{\"name\":\"hello\",\"arguments\":{\"name\":\"Shell Script\"}}}' | node index.js" | grep -v "Hello Claude MCP server starting" | grep -v "Server connected to stdio transport")
 
 echo -e "${MAGENTA}Result:${NC}"
 echo "$HELLO_RESULT" | jq . 2>/dev/null || echo "$HELLO_RESULT"
@@ -103,7 +103,7 @@ fi
 print_header "TEST 4: Call Echo Tool"
 
 print_info "Running direct JSON-RPC request to call the echo tool (via Docker)"
-ECHO_RESULT=$(docker exec -i test-mcp bash -c "echo '{\"jsonrpc\":\"2.0\",\"id\":\"1\",\"method\":\"tools/call\",\"params\":{\"name\":\"echo\",\"arguments\":{\"message\":\"Testing the echo tool\"}}}' | node index.js" | grep -v "Hello World MCP server starting" | grep -v "Server connected to stdio transport")
+ECHO_RESULT=$(docker exec -i test-mcp bash -c "echo '{\"jsonrpc\":\"2.0\",\"id\":\"1\",\"method\":\"tools/call\",\"params\":{\"name\":\"echo\",\"arguments\":{\"message\":\"Testing the echo tool\"}}}' | node index.js" | grep -v "Hello Claude MCP server starting" | grep -v "Server connected to stdio transport")
 
 echo -e "${MAGENTA}Result:${NC}"
 echo "$ECHO_RESULT" | jq . 2>/dev/null || echo "$ECHO_RESULT"
@@ -114,18 +114,36 @@ else
   print_error "Echo tool did not respond as expected"
 fi
 
-# Test 5: Access a resource using the template
+# Test 5: Call the get-system-info tool
+# This test demonstrates invoking a tool with no parameters
+# The get-system-info tool doesn't require any parameters
+print_header "TEST 5: Call System Info Tool"
+
+print_info "Running direct JSON-RPC request to call the get-system-info tool (via Docker)"
+SYSINFO_RESULT=$(docker exec -i test-mcp bash -c "echo '{\"jsonrpc\":\"2.0\",\"id\":\"1\",\"method\":\"tools/call\",\"params\":{\"name\":\"get-system-info\",\"arguments\":{}}}' | node index.js" | grep -v "Hello Claude MCP server starting" | grep -v "Server connected to stdio transport")
+
+echo -e "${MAGENTA}Result:${NC}"
+echo "$SYSINFO_RESULT" | jq . 2>/dev/null || echo "$SYSINFO_RESULT"
+
+if [[ $(echo "$SYSINFO_RESULT" | jq -r '.result.content[0].text') == *"System Info"* ]]; then
+  print_success "System Info tool responded correctly"
+else
+  print_error "System Info tool did not respond as expected"
+fi
+
+# Test 6: Access a resource using the template
 # This test demonstrates accessing a dynamic resource through its URI template
 # The 'greeting://{name}' template extracts the name parameter from the URI
-print_header "TEST 5: Access Resource Using Template"
+print_header "TEST 6: Access Resource Using Template"
 
 print_info "Running direct JSON-RPC request to access a resource (via Docker)"
-RESOURCE_RESULT=$(docker exec -i test-mcp bash -c "echo '{\"jsonrpc\":\"2.0\",\"id\":\"1\",\"method\":\"resources/retrieve\",\"params\":{\"uri\":\"greeting://World\"}}' | node index.js" | grep -v "Hello World MCP server starting" | grep -v "Server connected to stdio transport")
+RESOURCE_RESULT=$(docker exec -i test-mcp bash -c "echo '{\"jsonrpc\":\"2.0\",\"id\":\"1\",\"method\":\"resources/retrieve\",\"params\":{\"uri\":\"greeting://World\"}}' | node index.js" | grep -v "Hello Claude MCP server starting" | grep -v "Server connected to stdio transport")
 
 # If that fails with method not found, try resources/resolve (older spec)
 if [[ $(echo "$RESOURCE_RESULT" | grep -c "Method not found") -gt 0 ]]; then
   print_info "Method 'resources/retrieve' not found, trying 'resources/resolve'..."
-  RESOURCE_RESULT=$(docker exec -i test-mcp bash -c "echo '{\"jsonrpc\":\"2.0\",\"id\":\"1\",\"method\":\"resources/resolve\",\"params\":{\"uri\":\"greeting://World\"}}' | node index.js" | grep -v "Hello World MCP server starting" | grep -v "Server connected to stdio transport")
+  RESOLVE_RESULT=$(docker exec -i test-mcp bash -c "echo '{\"jsonrpc\":\"2.0\",\"id\":\"1\",\"method\":\"resources/resolve\",\"params\":{\"uri\":\"greeting://World\"}}' | node index.js" | grep -v "Hello Claude MCP server starting" | grep -v "Server connected to stdio transport")
+  RESOURCE_RESULT=$RESOLVE_RESULT
 fi
 
 echo -e "${MAGENTA}Result:${NC}"
@@ -184,7 +202,8 @@ echo -e "1. Tool discovery (tools/list)"
 echo -e "2. Resource template discovery (resources/templates/list)"
 echo -e "3. Tool invocation - hello tool (tools/call)"
 echo -e "4. Tool invocation - echo tool (tools/call)"
-echo -e "5. Resource access (resources/get)"
+echo -e "5. Tool invocation - system info tool (tools/call)"
+echo -e "6. Resource access (resources/get)"
 
 print_header "TEST COMPLETE"
 echo -e "${GREEN}To run the MCP server interactively, use:${NC}"

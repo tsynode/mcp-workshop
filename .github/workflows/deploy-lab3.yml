@@ -81,10 +81,9 @@ jobs:
         id: ecr-urls
         working-directory: ${{ env.TF_WORKING_DIR }}
         run: |
-          PRODUCT_REPO_URL=$(terraform output -raw product_repository_url)
-          ORDER_REPO_URL=$(terraform output -raw order_repository_url)
-          echo "product_repo_url=$PRODUCT_REPO_URL" >> $GITHUB_OUTPUT
-          echo "order_repo_url=$ORDER_REPO_URL" >> $GITHUB_OUTPUT
+          # Set environment variables for ECR repository URLs
+          echo "PRODUCT_ECR_REPO=$(terraform output -json product_repository_url | jq -r .)" >> $GITHUB_ENV
+          echo "ORDER_ECR_REPO=$(terraform output -json order_repository_url | jq -r .)" >> $GITHUB_ENV
 
       - name: Login to Amazon ECR
         id: login-ecr
@@ -95,14 +94,14 @@ jobs:
         with:
           context: ${{ env.PRODUCT_SERVER_DIR }}
           push: true
-          tags: ${{ steps.ecr-urls.outputs.product_repo_url }}:latest
+          tags: ${{ env.PRODUCT_ECR_REPO }}:latest
 
       - name: Build and push Order Server image
         uses: docker/build-push-action@v4
         with:
           context: ${{ env.ORDER_SERVER_DIR }}
           push: true
-          tags: ${{ steps.ecr-urls.outputs.order_repo_url }}:latest
+          tags: ${{ env.ORDER_ECR_REPO }}:latest
           
       - name: Terraform Apply Remaining Resources
         working-directory: ${{ env.TF_WORKING_DIR }}

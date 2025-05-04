@@ -113,10 +113,11 @@ resource "aws_ecs_service" "bedrock_client" {
   desired_count   = 1
   launch_type     = "FARGATE"
   
-  # This ensures this resource is only created after the ECR repositories and task definition
+  # This ensures this resource is only created after the ECR repositories, task definition, and load balancer
   depends_on = [
     aws_ecr_repository.bedrock_client,
-    aws_ecs_task_definition.bedrock_client
+    aws_ecs_task_definition.bedrock_client,
+    aws_lb_listener.bedrock_client
   ]
 
   network_configuration {
@@ -131,7 +132,7 @@ resource "aws_ecs_service" "bedrock_client" {
     container_port   = 8501
   }
 
-  depends_on = [aws_lb_listener.bedrock_client]
+  # depends_on is defined above
   
   tags = merge(local.tags, {
     Name = "${local.name_prefix}-bedrock-client-service"

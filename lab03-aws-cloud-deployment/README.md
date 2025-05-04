@@ -80,6 +80,8 @@ For detailed instructions, see [Setup GitHub Secrets](./docs/setup-github-secret
 
 ### 3. Run the GitHub Actions Workflow
 
+> **Note**: GitHub Actions workflows must be in the root `.github/workflows/` directory to be recognized. The workflow files in this lab's directory are for reference, but copies have been placed in the root directory of the repository.
+
 1. Go to the "Actions" tab in your GitHub repository
 2. Select the "Deploy Lab 3 to AWS" workflow
 3. Click "Run workflow"

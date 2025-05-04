@@ -71,20 +71,20 @@ jobs:
             -backend-config="key=lab03/terraform.tfstate" \
             -backend-config="region=${{ github.event.inputs.aws_region }}"
 
-      - name: Terraform Plan
+      - name: Terraform Apply ECR Only
         working-directory: ${{ env.TF_WORKING_DIR }}
-        run: terraform plan -var="aws_region=${{ github.event.inputs.aws_region }}" -var="github_repository=${{ github.repository }}" -out=tfplan
-
-      - name: Terraform Apply
-        working-directory: ${{ env.TF_WORKING_DIR }}
-        run: terraform apply -auto-approve tfplan
+        run: |
+          # Create only the ECR repositories first
+          terraform apply -auto-approve -var="aws_region=${{ github.event.inputs.aws_region }}" -var="github_repository=${{ github.repository }}" -target=aws_ecr_repository.product_repository -target=aws_ecr_repository.order_repository
 
       - name: Get ECR Repository URLs
+        id: ecr-urls
         working-directory: ${{ env.TF_WORKING_DIR }}
-        id: get-ecr-urls
         run: |
-          echo "PRODUCT_ECR_REPO=$(terraform output -raw product_repository_url)" >> $GITHUB_ENV
-          echo "ORDER_ECR_REPO=$(terraform output -raw order_repository_url)" >> $GITHUB_ENV
+          PRODUCT_REPO_URL=$(terraform output -raw product_repository_url)
+          ORDER_REPO_URL=$(terraform output -raw order_repository_url)
+          echo "product_repo_url=$PRODUCT_REPO_URL" >> $GITHUB_OUTPUT
+          echo "order_repo_url=$ORDER_REPO_URL" >> $GITHUB_OUTPUT
 
       - name: Login to Amazon ECR
         id: login-ecr
@@ -95,19 +95,20 @@ jobs:
         with:
           context: ${{ env.PRODUCT_SERVER_DIR }}
           push: true
-          tags: ${{ env.PRODUCT_ECR_REPO }}:latest
+          tags: ${{ steps.ecr-urls.outputs.product_repo_url }}:latest
 
       - name: Build and push Order Server image
         uses: docker/build-push-action@v4
         with:
           context: ${{ env.ORDER_SERVER_DIR }}
           push: true
-          tags: ${{ env.ORDER_ECR_REPO }}:latest
-
-      - name: Force new ECS deployment
+          tags: ${{ steps.ecr-urls.outputs.order_repo_url }}:latest
+          
+      - name: Terraform Apply Remaining Resources
+        working-directory: ${{ env.TF_WORKING_DIR }}
         run: |
-          aws ecs update-service --cluster mcp-workshop-cluster --service product-service --force-new-deployment
-          aws ecs update-service --cluster mcp-workshop-cluster --service order-service --force-new-deployment
+          # Now deploy the rest of the infrastructure
+          terraform apply -auto-approve -var="aws_region=${{ github.event.inputs.aws_region }}" -var="github_repository=${{ github.repository }}"
 
       - name: Get ALB Endpoints
         working-directory: ${{ env.TF_WORKING_DIR }}

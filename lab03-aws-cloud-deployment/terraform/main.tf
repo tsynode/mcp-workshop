@@ -79,3 +79,7 @@ output "product_alb_dns" {
 output "order_alb_dns" {
   value = module.order_alb.lb_dns_name
 }
+
+output "bedrock_client_repository_url" {
+  value = aws_ecr_repository.bedrock_client.repository_url
+}

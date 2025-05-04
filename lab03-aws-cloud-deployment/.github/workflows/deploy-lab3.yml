@@ -24,6 +24,7 @@ env:
   TF_WORKING_DIR: ./lab03-aws-cloud-deployment/terraform
   PRODUCT_SERVER_DIR: ./lab03-aws-cloud-deployment/src/product-server
   ORDER_SERVER_DIR: ./lab03-aws-cloud-deployment/src/order-server
+  BEDROCK_CLIENT_DIR: ./lab03-aws-cloud-deployment/src/bedrock-client
 
 jobs:
   build-and-deploy:
@@ -66,6 +67,7 @@ jobs:
         run: |
           echo "PRODUCT_ECR_REPO=$(terraform output -raw product_repository_url)" >> $GITHUB_ENV
           echo "ORDER_ECR_REPO=$(terraform output -raw order_repository_url)" >> $GITHUB_ENV
+          echo "BEDROCK_CLIENT_ECR_REPO=$(terraform output -raw bedrock_client_repository_url)" >> $GITHUB_ENV
 
       - name: Login to Amazon ECR
         id: login-ecr
@@ -85,10 +87,18 @@ jobs:
           push: true
           tags: ${{ env.ORDER_ECR_REPO }}:latest
 
+      - name: Build and push Bedrock Client image
+        uses: docker/build-push-action@v4
+        with:
+          context: ${{ env.BEDROCK_CLIENT_DIR }}
+          push: true
+          tags: ${{ env.BEDROCK_CLIENT_ECR_REPO }}:latest
+
       - name: Force new ECS deployment
         run: |
           aws ecs update-service --cluster mcp-workshop-cluster --service product-service --force-new-deployment
           aws ecs update-service --cluster mcp-workshop-cluster --service order-service --force-new-deployment
+          aws ecs update-service --cluster mcp-workshop-cluster --service bedrock-client --force-new-deployment
 
       - name: Get ALB Endpoints
         working-directory: ${{ env.TF_WORKING_DIR }}
@@ -96,13 +106,20 @@ jobs:
         run: |
           echo "PRODUCT_ALB=$(terraform output -raw product_alb_dns)" >> $GITHUB_ENV
           echo "ORDER_ALB=$(terraform output -raw order_alb_dns)" >> $GITHUB_ENV
+          echo "BEDROCK_CLIENT_ALB=$(terraform output -raw bedrock_client_url)" >> $GITHUB_ENV
 
-      - name: Output Claude Desktop Configuration
+      - name: Output Deployment Information
         run: |
           echo "✅ Deployment Complete!"
           echo ""
-          echo "Add the following to your Claude Desktop configuration:"
+          echo "MCP Server Endpoints:"
+          echo "- Product Server: https://${{ env.PRODUCT_ALB }}/mcp"
+          echo "- Order Server: https://${{ env.ORDER_ALB }}/mcp"
           echo ""
+          echo "Bedrock Client UI:"
+          echo "- ${{ env.BEDROCK_CLIENT_ALB }}"
+          echo ""
+          echo "Claude Desktop Configuration (if needed):"
           echo '{
             "mcpServers": {
               "aws-product-server": {
@@ -113,5 +130,3 @@ jobs:
               }
             }
           }'
-          echo ""
-          echo "Then restart Claude Desktop to connect to your cloud-hosted MCP servers."

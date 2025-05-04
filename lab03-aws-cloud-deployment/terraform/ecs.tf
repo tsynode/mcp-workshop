@@ -15,7 +15,6 @@ resource "aws_ecs_cluster" "main" {
 resource "aws_cloudwatch_log_group" "product_server" {
   name              = "/ecs/mcp-product-server"
   retention_in_days = 30
-  force_delete      = true
 
   tags = merge(local.tags, {
     Name = "mcp-product-server-logs"
@@ -25,7 +24,6 @@ resource "aws_cloudwatch_log_group" "product_server" {
 resource "aws_cloudwatch_log_group" "order_server" {
   name              = "/ecs/mcp-order-server"
   retention_in_days = 30
-  force_delete      = true
 
   tags = merge(local.tags, {
     Name = "mcp-order-server-logs"

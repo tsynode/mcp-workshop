@@ -188,8 +188,117 @@ if user_input:
             )
             
             # Log the raw response for debugging
-            st.sidebar.write("Raw Response:")
+            st.sidebar.write("Initial Response:")
             st.sidebar.json(response)
+            
+            # Check if the model is requesting to use a tool
+            stop_reason = response.get('stopReason', '')
+            
+            if stop_reason == 'tool_use':
+                st.sidebar.write("Tool use detected - executing tool call...")
+                
+                # Extract the tool use details
+                output = response.get('output', {})
+                message = output.get('message', {})
+                contents = message.get('content', [])
+                
+                # Find the toolUse content
+                tool_use = None
+                for content in contents:
+                    if 'toolUse' in content:
+                        tool_use = content.get('toolUse', {})
+                        break
+                
+                if tool_use:
+                    tool_name = tool_use.get('name', '')
+                    tool_input = tool_use.get('input', {})
+                    tool_use_id = tool_use.get('toolUseId', '')
+                    
+                    st.sidebar.write(f"Executing tool: {tool_name}")
+                    st.sidebar.write(f"Tool input: {tool_input}")
+                    
+                    # Execute the tool call to the appropriate MCP server
+                    import requests
+                    
+                    # Determine which MCP server to call based on the tool name
+                    mcp_url = ''
+                    if tool_name == 'product-server':
+                        mcp_url = product_server_url
+                    elif tool_name == 'order-server':
+                        mcp_url = order_server_url
+                    
+                    if mcp_url:
+                        try:
+                            # Format the request for the MCP server
+                            mcp_request = {
+                                "jsonrpc": "2.0",
+                                "method": "search-products" if 'category' in tool_input else "get-product",
+                                "params": tool_input,
+                                "id": "1"
+                            }
+                            
+                            # Make the request to the MCP server
+                            st.sidebar.write(f"Sending request to MCP server: {mcp_url}")
+                            st.sidebar.json(mcp_request)
+                            
+                            # Use verify=False to ignore SSL certificate validation
+                            mcp_response = requests.post(
+                                mcp_url,
+                                json=mcp_request,
+                                headers={
+                                    'Content-Type': 'application/json',
+                                    'Accept': 'application/json, text/event-stream'
+                                },
+                                verify=False  # Ignore SSL certificate validation
+                            )
+                            
+                            # Parse the MCP response
+                            st.sidebar.write("MCP Server Response:")
+                            st.sidebar.write(mcp_response.text)
+                            
+                            # Extract the result from the MCP response
+                            tool_result = None
+                            if mcp_response.status_code == 200:
+                                # Handle SSE format if present
+                                if mcp_response.text.startswith('event:'):
+                                    # Extract the JSON from the SSE format
+                                    data_line = [line for line in mcp_response.text.split('\n') if line.startswith('data:')]
+                                    if data_line:
+                                        json_str = data_line[0][5:]  # Remove 'data:' prefix
+                                        tool_result_data = json.loads(json_str)
+                                else:
+                                    tool_result_data = mcp_response.json()
+                                
+                                # Check for result or error
+                                if 'result' in tool_result_data:
+                                    tool_result = tool_result_data['result']
+                                elif 'error' in tool_result_data:
+                                    tool_result = {"error": tool_result_data['error']}
+                            
+                            # Continue the conversation with the tool result
+                            if tool_result is not None:
+                                st.sidebar.write("Continuing conversation with tool result...")
+                                
+                                # Prepare the tool result for Bedrock
+                                tool_result_for_bedrock = {
+                                    "toolUseId": tool_use_id,
+                                    "content": [{
+                                        "text": json.dumps(tool_result)
+                                    }]
+                                }
+                                
+                                # Continue the conversation with the tool result
+                                response = bedrock_runtime.converse_continue(
+                                    conversationId=response.get('conversationId'),
+                                    toolResult=tool_result_for_bedrock
+                                )
+                                
+                                st.sidebar.write("Final Response:")
+                                st.sidebar.json(response)
+                        except Exception as e:
+                            st.sidebar.error(f"Error executing tool call: {str(e)}")
+                            import traceback
+                            st.sidebar.code(traceback.format_exc())
             
             # Process the response from the Bedrock Converse API
             assistant_response = ""

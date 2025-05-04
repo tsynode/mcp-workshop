@@ -135,6 +135,44 @@ After adding your servers to Claude Desktop:
    - "Create an order for 2 units of product p002"
    - "Check the status of my orders"
 
+## Debugging with MCP Inspector
+
+If you encounter issues with your MCP servers, the MCP Inspector tool is invaluable for testing and debugging:
+
+### 1. Install and Run the MCP Inspector
+
+```bash
+# Install and run the MCP Inspector
+npx @modelcontextprotocol/inspector
+
+# If you're connecting to servers with self-signed certificates, use:
+NODE_TLS_REJECT_UNAUTHORIZED=0 npx @modelcontextprotocol/inspector
+```
+
+The inspector will be available at http://127.0.0.1:6274 in your browser.
+
+### 2. Connect to Your MCP Servers
+
+1. Enter your MCP server URL (e.g., https://your-product-alb-endpoint.region.elb.amazonaws.com/mcp)
+2. Select the appropriate transport type (Streamable HTTP)
+3. Click "Connect"
+
+The inspector will discover available tools on your MCP server and allow you to test them directly.
+
+### 3. Test Individual Tool Calls
+
+1. Select a tool from the left sidebar
+2. Fill in the required parameters
+3. Click "Run Tool"
+4. View the response to confirm your server is working correctly
+
+### 4. Troubleshooting Tips
+
+- If you encounter SSL certificate errors, use the `NODE_TLS_REJECT_UNAUTHORIZED=0` flag
+- Check CloudWatch logs for detailed request information
+- Compare successful requests from the MCP Inspector with requests from Claude or other clients
+- Verify network connectivity and security group rules allow traffic to your MCP servers
+
 ## Implementation Details
 
 ### MCP Servers

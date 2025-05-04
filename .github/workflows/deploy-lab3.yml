@@ -133,9 +133,15 @@ jobs:
         working-directory: ${{ env.TF_WORKING_DIR }}
         id: get-alb-endpoints
         run: |
-          # Get the ALB DNS names directly from individual outputs instead of the formatted deployment_info
-          PRODUCT_ALB=$(terraform output -raw product_alb_dns)
-          ORDER_ALB=$(terraform output -raw order_alb_dns)
+          # Get the ALB DNS names directly from individual outputs and clean any debug output
+          PRODUCT_ALB=$(terraform output -raw product_alb_dns | grep -o '[^:]*\.elb\.amazonaws\.com' | head -1)
+          ORDER_ALB=$(terraform output -raw order_alb_dns | grep -o '[^:]*\.elb\.amazonaws\.com' | head -1)
+          
+          # Verify we have valid ALB DNS names
+          if [[ -z "$PRODUCT_ALB" || -z "$ORDER_ALB" ]]; then
+            echo "Error: Failed to extract valid ALB DNS names"
+            exit 1
+          fi
           
           echo "PRODUCT_ALB=$PRODUCT_ALB" >> $GITHUB_ENV
           echo "ORDER_ALB=$ORDER_ALB" >> $GITHUB_ENV

@@ -78,33 +78,20 @@ jobs:
           terraform apply -auto-approve -var="aws_region=${{ github.event.inputs.aws_region }}" -var="github_repository=${{ github.repository }}" -target=aws_ecr_repository.product_repository -target=aws_ecr_repository.order_repository
 
       - name: Get ECR Repository URLs
-        id: ecr-urls
         working-directory: ${{ env.TF_WORKING_DIR }}
         run: |
+          # Hardcode the ECR repository URLs based on the repository names
+          # This avoids issues with Terraform output parsing
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          REGION=${{ github.event.inputs.aws_region }}
+          
           # Set environment variables for ECR repository URLs
-          PRODUCT_REPO_URL=$(terraform output -raw product_repository_url)
-          ORDER_REPO_URL=$(terraform output -raw order_repository_url)
+          echo "PRODUCT_ECR_REPO=${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/mcp-product-server" >> $GITHUB_ENV
+          echo "ORDER_ECR_REPO=${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/mcp-order-server" >> $GITHUB_ENV
           
-          # Remove any debug output that might be appended
-          PRODUCT_REPO_URL=$(echo "$PRODUCT_REPO_URL" | cut -d ':' -f1 | cut -d ' ' -f1)
-          ORDER_REPO_URL=$(echo "$ORDER_REPO_URL" | cut -d ':' -f1 | cut -d ' ' -f1)
-          
-          # Verify URLs look correct
-          if [[ "$PRODUCT_REPO_URL" == *".dkr.ecr."*".amazonaws.com/"* ]]; then
-            echo "PRODUCT_ECR_REPO=$PRODUCT_REPO_URL" >> $GITHUB_ENV
-            echo "Product ECR URL looks valid: $PRODUCT_REPO_URL"
-          else
-            echo "::error::Invalid product ECR URL: $PRODUCT_REPO_URL"
-            exit 1
-          fi
-          
-          if [[ "$ORDER_REPO_URL" == *".dkr.ecr."*".amazonaws.com/"* ]]; then
-            echo "ORDER_ECR_REPO=$ORDER_REPO_URL" >> $GITHUB_ENV
-            echo "Order ECR URL looks valid: $ORDER_REPO_URL"
-          else
-            echo "::error::Invalid order ECR URL: $ORDER_REPO_URL"
-            exit 1
-          fi
+          # Debug output
+          echo "Product ECR URL: ${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/mcp-product-server"
+          echo "Order ECR URL: ${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/mcp-order-server"
 
       - name: Validate ECR Repository URLs
         run: |

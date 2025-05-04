@@ -19,7 +19,7 @@ on:
           - ap-southeast-1
           - ap-southeast-2
       confirmation:
-        description: 'Type "destroy" to confirm deletion of all AWS resources'
+        description: 'Type "destroy" to confirm deletion of AWS resources, or "destroy-all" to also delete the Terraform state bucket'
         required: true
         type: string
 
@@ -29,7 +29,7 @@ env:
 jobs:
   destroy:
     runs-on: ubuntu-latest
-    if: ${{ github.event.inputs.confirmation == 'destroy' }}
+    if: ${{ github.event.inputs.confirmation == 'destroy' || github.event.inputs.confirmation == 'destroy-all' }}
     permissions:
       contents: read
       id-token: write
@@ -53,7 +53,11 @@ jobs:
 
       - name: Terraform Init
         working-directory: ${{ env.TF_WORKING_DIR }}
-        run: terraform init
+        run: |
+          terraform init \
+            -backend-config="bucket=mcp-workshop-tf-state-${{ github.repository_owner }}" \
+            -backend-config="key=lab03/terraform.tfstate" \
+            -backend-config="region=${{ github.event.inputs.aws_region }}"
 
       - name: Terraform Destroy
         working-directory: ${{ env.TF_WORKING_DIR }}
@@ -63,3 +67,13 @@ jobs:
         run: |
           echo "✅ All AWS resources have been destroyed successfully."
           echo "Your AWS account should no longer incur charges for Lab 3 resources."
+      
+      - name: Clean up S3 bucket (optional)
+        if: ${{ github.event.inputs.confirmation == 'destroy-all' }}
+        run: |
+          echo "Cleaning up Terraform state bucket..."
+          # Empty the bucket first
+          aws s3 rm s3://mcp-workshop-tf-state-${{ github.repository_owner }} --recursive
+          # Delete the bucket
+          aws s3api delete-bucket --bucket mcp-workshop-tf-state-${{ github.repository_owner }} --region ${{ github.event.inputs.aws_region }}
+          echo "S3 bucket deleted successfully."

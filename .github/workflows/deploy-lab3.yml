@@ -49,9 +49,27 @@ jobs:
         with:
           terraform_version: 1.5.0
 
+      - name: Create S3 bucket for Terraform state
+        run: |
+          # Create S3 bucket for Terraform state if it doesn't exist
+          aws s3api head-bucket --bucket mcp-workshop-tf-state-${{ github.repository_owner }} 2>/dev/null || \
+          aws s3api create-bucket \
+            --bucket mcp-workshop-tf-state-${{ github.repository_owner }} \
+            --region ${{ github.event.inputs.aws_region }} \
+            --create-bucket-configuration LocationConstraint=${{ github.event.inputs.aws_region }}
+          
+          # Enable versioning on the bucket
+          aws s3api put-bucket-versioning \
+            --bucket mcp-workshop-tf-state-${{ github.repository_owner }} \
+            --versioning-configuration Status=Enabled
+      
       - name: Terraform Init
         working-directory: ${{ env.TF_WORKING_DIR }}
-        run: terraform init
+        run: |
+          terraform init \
+            -backend-config="bucket=mcp-workshop-tf-state-${{ github.repository_owner }}" \
+            -backend-config="key=lab03/terraform.tfstate" \
+            -backend-config="region=${{ github.event.inputs.aws_region }}"
 
       - name: Terraform Plan
         working-directory: ${{ env.TF_WORKING_DIR }}

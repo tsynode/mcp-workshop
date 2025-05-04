@@ -1,4 +1,5 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { createServer } from "http";
 import { z } from "zod";
 
@@ -160,6 +161,14 @@ const httpServer = createServer(async (req, res) => {
         // Parse the request body
         const requestData = JSON.parse(body);
         
+        // Create a transport for handling the request
+        const transport = new StreamableHTTPServerTransport({
+          enableJsonResponse: !useSSE
+        });
+        
+        // Connect the transport to the server
+        await server.connect(transport);
+        
         if (useSSE) {
           // Set up SSE response
           res.writeHead(200, {
@@ -168,23 +177,11 @@ const httpServer = createServer(async (req, res) => {
             'Connection': 'keep-alive'
           });
           
-          // Create a stream handler that sends events to the client
-          const streamHandler = {
-            write: (data) => {
-              res.write(`data: ${JSON.stringify(data)}\n\n`);
-            },
-            end: () => {
-              res.end();
-            }
-          };
-          
-          // Process the request with streaming
-          await server.handleJsonRpcRequest(requestData, streamHandler);
+          // Handle the request with the transport
+          await transport.handleRequest(req, res, requestData);
         } else {
-          // Standard JSON response
-          const response = await server.handleJsonRpcRequest(requestData);
-          res.writeHead(200, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify(response));
+          // Handle the request with the transport in JSON mode
+          await transport.handleRequest(req, res, requestData);
         }
       } catch (error) {
         console.error('Error processing request:', error);

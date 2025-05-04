@@ -84,7 +84,7 @@ jobs:
         working-directory: ${{ env.TF_WORKING_DIR }}
         run: |
           # Create only the ECR repositories first
-          terraform apply -auto-approve -var="aws_region=${{ github.event.inputs.aws_region }}" -var="github_repository=${{ github.repository }}" -target=aws_ecr_repository.product_repository -target=aws_ecr_repository.order_repository
+          terraform apply -auto-approve -var="aws_region=${{ github.event.inputs.aws_region }}" -var="github_repository=${{ github.repository }}" -target=aws_ecr_repository.product_repository -target=aws_ecr_repository.order_repository -target=aws_ecr_repository.bedrock_client
 
       - name: Get ECR Repository URLs
         working-directory: ${{ env.TF_WORKING_DIR }}

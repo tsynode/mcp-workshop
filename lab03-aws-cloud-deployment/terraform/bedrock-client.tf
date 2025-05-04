@@ -27,10 +27,17 @@ resource "aws_ecs_task_definition" "bedrock_client" {
   family                   = "bedrock-client"
   network_mode             = "awsvpc"
   requires_compatibilities = ["FARGATE"]
-  cpu                      = "512"
-  memory                   = "1024"
-  execution_role_arn       = aws_iam_role.ecs_execution_role.arn
+  cpu                      = 256
+  memory                   = 512
+  execution_role_arn       = aws_iam_role.ecs_task_execution_role.arn
   task_role_arn            = aws_iam_role.ecs_task_role.arn
+  
+  # This ensures this resource is only created after the ECR repositories
+  depends_on = [
+    aws_ecr_repository.product_repository,
+    aws_ecr_repository.order_repository,
+    aws_ecr_repository.bedrock_client
+  ]
 
   container_definitions = jsonencode([
     {
@@ -49,11 +56,11 @@ resource "aws_ecs_task_definition" "bedrock_client" {
       environment = [
         {
           name  = "PRODUCT_MCP_SERVER_URL"
-          value = "https://${aws_lb.product_alb.dns_name}/mcp"
+          value = "https://${module.product_alb.lb_dns_name}/mcp"
         },
         {
           name  = "ORDER_MCP_SERVER_URL"
-          value = "https://${aws_lb.order_alb.dns_name}/mcp"
+          value = "https://${module.order_alb.lb_dns_name}/mcp"
         }
       ]
       
@@ -105,6 +112,12 @@ resource "aws_ecs_service" "bedrock_client" {
   task_definition = aws_ecs_task_definition.bedrock_client.arn
   desired_count   = 1
   launch_type     = "FARGATE"
+  
+  # This ensures this resource is only created after the ECR repositories and task definition
+  depends_on = [
+    aws_ecr_repository.bedrock_client,
+    aws_ecs_task_definition.bedrock_client
+  ]
 
   network_configuration {
     subnets          = module.vpc.private_subnets

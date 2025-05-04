@@ -37,7 +37,7 @@ bedrock_runtime = boto3.client(
 st.sidebar.title("Model Settings")
 model_id = st.sidebar.selectbox(
     "Select Claude model",
-    ["anthropic.claude-3-sonnet-20240229-v1:0", "anthropic.claude-3-haiku-20240307-v1:0", "anthropic.claude-3-5-sonnet-20240620-v1:0", "anthropic.claude-3-7-sonnet-20240620-v1:0"],
+    ["anthropic.claude-3-sonnet-20240229-v1", "anthropic.claude-3-haiku-20240307-v1", "anthropic.claude-3-5-sonnet-20240620-v1", "anthropic.claude-3-7-sonnet-20250219-v1"],
     index=3  # Default to Claude 3.7 Sonnet
 )
 

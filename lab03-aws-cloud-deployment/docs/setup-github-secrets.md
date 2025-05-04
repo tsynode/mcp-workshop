@@ -44,6 +44,8 @@ Now, add these credentials as secrets in your GitHub repository:
 4. Click "New repository secret"
 5. Add the following secrets:
 
+### For Standard IAM Users
+
 ### AWS_ACCESS_KEY_ID
 
 1. Name: `AWS_ACCESS_KEY_ID`
@@ -61,6 +63,30 @@ Now, add these credentials as secrets in your GitHub repository:
 1. Name: `AWS_REGION`
 2. Value: Your preferred AWS region (e.g., `us-west-2`)
 3. Click "Add secret"
+
+### For AWS SSO Users
+
+If you're using AWS SSO or temporary credentials, you'll need to add an additional secret for the session token:
+
+### AWS_SESSION_TOKEN
+
+1. Name: `AWS_SESSION_TOKEN`
+2. Value: Your AWS session token from SSO credentials
+3. Click "Add secret"
+
+#### Getting AWS SSO Credentials
+
+To get your AWS SSO credentials:
+
+1. Log in to your AWS SSO portal
+2. Select the account and role you want to use
+3. Click on "Command line or programmatic access"
+4. Copy the values for:
+   - AWS Access Key ID
+   - AWS Secret Access Key
+   - AWS Session Token
+
+**Important**: SSO credentials are temporary and typically expire after a few hours. You'll need to update these secrets when they expire.
 
 ## Step 3: Verify Secrets
 

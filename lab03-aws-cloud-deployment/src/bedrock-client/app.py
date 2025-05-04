@@ -247,24 +247,55 @@ if user_input:
                                 json=mcp_request,
                                 headers={
                                     'Content-Type': 'application/json',
-                                    'Accept': 'application/json'
+                                    'Accept': 'application/json, text/event-stream'
                                 },
                                 verify=False  # Ignore SSL certificate validation
                             )
                             
-                            # Parse the JSON response
-                            mcp_result = mcp_response.json()
-                            st.sidebar.write(f"MCP response: {json.dumps(mcp_result, indent=2)}")
+                            # Parse the response - handle both JSON and SSE formats
+                            response_text = mcp_response.text
+                            st.sidebar.write(f"Raw MCP response: {response_text}")
+                            
+                            # Check if the response is in SSE format
+                            if response_text.startswith('event:') or '\ndata:' in response_text:
+                                # Extract the JSON from the SSE format
+                                data_lines = [line for line in response_text.split('\n') if line.startswith('data:')]
+                                if data_lines:
+                                    json_str = data_lines[0][5:]  # Remove 'data:' prefix
+                                    mcp_result = json.loads(json_str)
+                                else:
+                                    mcp_result = {"error": "Could not parse SSE response"}
+                            else:
+                                # Regular JSON response
+                                mcp_result = mcp_response.json()
+                                
+                            st.sidebar.write(f"Parsed MCP response: {json.dumps(mcp_result, indent=2)}")
+                            
+                            # Check for error in response
+                            if "error" in mcp_result:
+                                st.sidebar.error(f"MCP server returned an error: {json.dumps(mcp_result['error'], indent=2)}")
+                                # Create an error message for the tool result
+                                error_message = mcp_result.get('error', {}).get('message', 'Unknown error')
+                                result = {"error": error_message}
+                                # Continue with this result
                             
                             # Extract the result from the MCP response
                             if "result" in mcp_result:
                                 result = mcp_result["result"]
                                 
                                 # Create the tool result
-                                tool_result = {
-                                    "toolUseId": tool_use_id,  # Use the correct variable name
-                                    "content": [{"json": result}]
-                                }
+                                # If there was an error, include status: error
+                                if "error" in result:
+                                    tool_result = {
+                                        "toolUseId": tool_use_id,
+                                        "content": [{"json": result}],
+                                        "status": "error"
+                                    }
+                                else:
+                                    tool_result = {
+                                        "toolUseId": tool_use_id,
+                                        "content": [{"json": result}]
+                                    }
                                 
                                 # Create a tool result message following AWS documentation pattern
                                 tool_result_message = {

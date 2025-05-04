@@ -280,17 +280,35 @@ if user_input:
                                 st.sidebar.write("Continuing conversation with tool result...")
                                 
                                 # Prepare the tool result for Bedrock
-                                tool_result_for_bedrock = {
-                                    "toolUseId": tool_use_id,
-                                    "content": [{
-                                        "text": json.dumps(tool_result)
-                                    }]
+                                tool_result_content = {
+                                    "toolResult": {
+                                        "toolUseId": tool_use_id,
+                                        "content": [{
+                                            "text": json.dumps(tool_result)
+                                        }]
+                                    }
                                 }
                                 
-                                # Continue the conversation with the tool result
-                                response = bedrock_runtime.converse_continue(
-                                    conversationId=response.get('conversationId'),
-                                    toolResult=tool_result_for_bedrock
+                                # Add the tool result to messages
+                                # Based on AWS documentation, we need to append the tool result as a user message
+                                tool_result_message = {
+                                    "role": "user",
+                                    "content": [tool_result_content]
+                                }
+                                
+                                # Add the tool result message to the conversation history
+                                messages_for_model.append(tool_result_message)
+                                
+                                # Continue the conversation with the updated messages
+                                response = bedrock_runtime.converse(
+                                    modelId=model_id,
+                                    messages=messages_for_model,
+                                    system=system_prompt,
+                                    inferenceConfig={
+                                        "maxTokens": max_tokens,
+                                        "temperature": temperature
+                                    },
+                                    toolConfig=tool_config
                                 )
                                 
                                 st.sidebar.write("Final Response:")

@@ -230,12 +230,29 @@ if user_input:
                     if mcp_url:
                         try:
                             # Format the request for the MCP server
+                            # The tool name in the MCP server is the method name to call
+                            # The tool name from Bedrock is the name of the MCP server, not the method
+                            
+                            # Determine which method to call based on the tool name and parameters
+                            if tool_name == "product-server":
+                                if 'productId' in tool_input and not 'quantity' in tool_input:
+                                    method_name = "get-product"
+                                else:
+                                    method_name = "search-products"
+                            elif tool_name == "order-server":
+                                if 'orderId' in tool_input:
+                                    method_name = "check-order-status"
+                                else:
+                                    method_name = "create-order"
+                                
                             mcp_request = {
                                 "jsonrpc": "2.0",
-                                "method": "search-products" if 'category' in tool_input else "get-product",
+                                "method": method_name,
                                 "params": tool_input,
                                 "id": "1"
                             }
+                            
+                            st.sidebar.write(f"Using method: {method_name}")
                             
                             # Make the request to the MCP server
                             st.sidebar.write(f"Sending request to MCP server: {mcp_url}")

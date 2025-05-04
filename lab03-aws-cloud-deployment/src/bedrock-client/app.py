@@ -51,16 +51,32 @@ st.sidebar.write(f"ORDER_MCP_SERVER_URL: {os.environ.get('ORDER_MCP_SERVER_URL',
 product_server_url = os.environ.get('PRODUCT_MCP_SERVER_URL', 'https://mcp-prod-alb-989631483.us-west-2.elb.amazonaws.com/mcp')
 order_server_url = os.environ.get('ORDER_MCP_SERVER_URL', 'https://mcp-order-alb-912981373.us-west-2.elb.amazonaws.com/mcp')
 
-# Define your MCP servers
-mcp_tools = {
-    "mcpServers": {
-        "product-server": {
-            "url": product_server_url
+# Define your MCP tools for Bedrock Converse API
+tool_config = {
+    "tools": [
+        {
+            "toolSpec": {
+                "name": "product-server",
+                "description": "Get product information from the retail catalog",
+                "inputSchema": {
+                    "mcp": {
+                        "url": product_server_url
+                    }
+                }
+            }
         },
-        "order-server": {
-            "url": order_server_url
+        {
+            "toolSpec": {
+                "name": "order-server",
+                "description": "Place and manage orders for products",
+                "inputSchema": {
+                    "mcp": {
+                        "url": order_server_url
+                    }
+                }
+            }
         }
-    }
+    ]
 }
 
 # Set up Streamlit UI
@@ -89,9 +105,9 @@ if user_input:
     with st.spinner("Claude is thinking..."):
         try:
             # Convert previous messages to the format expected by Bedrock
-            bedrock_messages = []
+            messages_for_model = []
             for msg in st.session_state.messages:
-                bedrock_messages.append({
+                messages_for_model.append({
                     "role": msg["role"],
                     "content": [
                         {
@@ -101,33 +117,46 @@ if user_input:
                     ]
                 })
             
+            # Set inference parameters based on model
+            max_tokens = 4096
+            temperature = 0.7
+            
+            # Prepare the request body for Bedrock converse API
+            request_body = {
+                "messages": messages_for_model,
+                "toolConfig": tool_config,
+                "system": [{"text": "You are a retail assistant that can help customers find products and place orders."}],
+                "inferenceConfig": {
+                    "maxTokens": max_tokens,
+                    "temperature": temperature
+                }
+            }
+            
             # Call the converse API with the selected model
             response = bedrock_runtime.converse(
                 modelId=model_id,  # Use the selected model from sidebar
-                messages=bedrock_messages,
-                tools=mcp_tools,
-                system="You are a retail assistant that can help customers find products and place orders."
+                requestBody=json.dumps(request_body)
             )
             
-            # Process the response directly from the converse API
-            
-            # Process the response
+            # Process the response from the Bedrock Converse API
             assistant_response = ""
             tool_usage = ""
             
             # Extract the content from the response
-            for message in response.get('messages', []):
-                if message.get('role') == 'assistant':
-                    for content in message.get('content', []):
-                        if content.get('type') == 'text':
-                            assistant_response += content.get('text', '')
-                        elif content.get('type') == 'tool_use':
-                            tool_name = content.get('name', 'unknown')
-                            tool_input = json.dumps(content.get('input', {}), indent=2)
-                            tool_usage += f"\n\n**Tool Used: {tool_name}**\n```json\n{tool_input}\n```\n"
-                        elif content.get('type') == 'tool_result':
-                            tool_result = json.dumps(content.get('content', {}), indent=2)
-                            tool_usage += f"\n**Tool Result:**\n```json\n{tool_result}\n```\n"
+            output = response.get('output', {})
+            message = output.get('message', {})
+            contents = message.get('content', [])
+            
+            for content in contents:
+                if content.get('type') == 'text':
+                    assistant_response += content.get('text', '')
+                elif content.get('type') == 'tool_use':
+                    tool_name = content.get('name', 'unknown')
+                    tool_input = json.dumps(content.get('input', {}), indent=2)
+                    tool_usage += f"\n\n**Tool Used: {tool_name}**\n```json\n{tool_input}\n```\n"
+                elif content.get('type') == 'tool_result':
+                    tool_result = json.dumps(content.get('content', {}), indent=2)
+                    tool_usage += f"\n**Tool Result:**\n```json\n{tool_result}\n```\n"
             
             # Add tool usage information if any tools were used
             if tool_usage:

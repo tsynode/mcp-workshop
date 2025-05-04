@@ -1,0 +1,27 @@
+{
+  "name": "mcp-order-server",
+  "version": "1.0.0",
+  "description": "MCP Order Server for Lab 03 - AWS Cloud Deployment",
+  "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "nodemon index.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "mcp",
+    "ai",
+    "claude",
+    "aws"
+  ],
+  "author": "MCP Workshop",
+  "license": "MIT",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.8.0",
+    "zod": "^3.22.4"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.1"
+  }
+}

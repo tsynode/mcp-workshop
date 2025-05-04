@@ -22,6 +22,7 @@ This standardized approach allows AI capabilities to be portable across differen
 
 - **Lab 01: Hello Claude** - A minimal MCP server with Claude Desktop integration for interactive testing
 - **Lab 02: Retail MCP Servers** - Multiple MCP servers working together for a retail use case
+- **Lab 03: AWS Cloud Deployment** - Deploy MCP servers to AWS Fargate with HTTPS and streaming support
 - *(More labs will be added in the future)*
 
 ## Getting Started
@@ -31,13 +32,20 @@ Each lab directory contains its own README with specific instructions:
 1. Start with **Lab 01** to learn the basics of MCP server implementation and Claude Desktop integration:
 ```bash
 cd lab01-hello-claude
-# Be sure to read the README.md in this directory for detailed instructions
-cat README.md
 ```
 
 2. Continue with **Lab 02** to explore how multiple MCP servers can work together:
 ```bash
 cd lab02-retail-mcp-servers
+```
+
+3. Advance to **Lab 03** to deploy MCP servers to AWS with Fargate:
+```bash
+cd lab03-aws-cloud-deployment
+```
+
+# Be sure to read the README in each lab directory
+```bash
 cat README.md
 ```
 

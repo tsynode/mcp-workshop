@@ -1,3 +1,4 @@
+# GitHub Actions workflow for deploying Lab 3 to AWS
 name: Deploy Lab 3 to AWS
 
 on:

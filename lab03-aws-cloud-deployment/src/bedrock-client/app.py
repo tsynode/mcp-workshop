@@ -12,16 +12,34 @@ bedrock_runtime = boto3.client(
     region_name='us-west-2'
 )
 
-# Define your existing MCP servers
+# Add model selection in sidebar
+st.sidebar.title("Model Settings")
+model_id = st.sidebar.selectbox(
+    "Select Claude model",
+    ["anthropic.claude-3-sonnet-20240229-v1:0", "anthropic.claude-3-haiku-20240307-v1:0", "anthropic.claude-3-5-sonnet-20240620-v1:0", "anthropic.claude-3-7-sonnet-20240620-v1:0"],
+    index=3  # Default to Claude 3.7 Sonnet
+)
+
+# Debug information in sidebar
+st.sidebar.title("Debug Info")
+st.sidebar.write("Environment Variables:")
+st.sidebar.write(f"PRODUCT_MCP_SERVER_URL: {os.environ.get('PRODUCT_MCP_SERVER_URL', 'Not set')}")
+st.sidebar.write(f"ORDER_MCP_SERVER_URL: {os.environ.get('ORDER_MCP_SERVER_URL', 'Not set')}")
+
+# Get MCP server URLs from environment variables or use defaults
+product_server_url = os.environ.get('PRODUCT_MCP_SERVER_URL', 'https://mcp-prod-alb-989631483.us-west-2.elb.amazonaws.com/mcp')
+order_server_url = os.environ.get('ORDER_MCP_SERVER_URL', 'https://mcp-order-alb-912981373.us-west-2.elb.amazonaws.com/mcp')
+
+# Define your MCP servers
 mcp_tools = {
     "tools": [
         {
             "name": "product-server",
-            "url": "https://mcp-prod-alb-989631483.us-west-2.elb.amazonaws.com/mcp"
+            "url": product_server_url
         },
         {
             "name": "order-server",
-            "url": "https://mcp-order-alb-912981373.us-west-2.elb.amazonaws.com/mcp"
+            "url": order_server_url
         }
     ]
 }
@@ -51,27 +69,34 @@ if user_input:
     # Call Bedrock with Claude model and MCP tools
     with st.spinner("Claude is thinking..."):
         try:
+            # Convert previous messages to the format expected by Bedrock
+            bedrock_messages = []
+            for msg in st.session_state.messages:
+                bedrock_messages.append({
+                    "role": msg["role"],
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": msg["content"]
+                        }
+                    ]
+                })
+            
+            # Call the converse API with the selected model
             response = bedrock_runtime.converse(
-                modelId="anthropic.claude-3-sonnet-20240229-v1:0",
-                messages=[
-                    {
-                        "role": "user", 
-                        "content": [
-                            {
-                                "type": "text", 
-                                "text": user_input
-                            }
-                        ]
-                    }
-                ],
+                modelId=model_id,  # Use the selected model from sidebar
+                messages=bedrock_messages,
                 tools=mcp_tools,
                 system="You are a retail assistant that can help customers find products and place orders."
             )
+            
+            # Process the response directly from the converse API
             
             # Process the response
             assistant_response = ""
             tool_usage = ""
             
+            # Extract the content from the response
             for message in response.get('messages', []):
                 if message.get('role') == 'assistant':
                     for content in message.get('content', []):

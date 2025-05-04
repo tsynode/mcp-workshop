@@ -219,12 +219,13 @@ jobs:
         run: |
           echo "✅ Deployment Complete!"
           echo ""
+          echo "============================================"
+          echo "🔗 BEDROCK CLIENT URL: http://${{ env.BEDROCK_CLIENT_ALB }}"
+          echo "============================================"
+          echo ""
           echo "MCP Server Endpoints:"
           echo "- Product Server: https://${{ env.PRODUCT_ALB }}/mcp"
           echo "- Order Server: https://${{ env.ORDER_ALB }}/mcp"
-          echo ""
-          echo "Bedrock Client UI:"
-          echo "- http://${{ env.BEDROCK_CLIENT_ALB }}"
           echo ""
           echo "Claude Desktop Configuration (if needed):"
           echo '{

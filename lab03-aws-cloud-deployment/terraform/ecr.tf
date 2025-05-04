@@ -1,5 +1,5 @@
 resource "aws_ecr_repository" "product_repository" {
-  name                 = "${local.name_prefix}-product-server"
+  name                 = "mcp-product-server"
   image_tag_mutability = "MUTABLE"
   force_delete         = true
 
@@ -13,7 +13,7 @@ resource "aws_ecr_repository" "product_repository" {
 }
 
 resource "aws_ecr_repository" "order_repository" {
-  name                 = "${local.name_prefix}-order-server"
+  name                 = "mcp-order-server"
   image_tag_mutability = "MUTABLE"
   force_delete         = true
 

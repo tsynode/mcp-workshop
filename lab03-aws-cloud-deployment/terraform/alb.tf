@@ -2,7 +2,7 @@ module "product_alb" {
   source  = "terraform-aws-modules/alb/aws"
   version = "~> 8.0"
 
-  name = "${local.name_prefix}-product-alb-${random_string.suffix.result}"
+  name = "mcp-prod-alb"
 
   load_balancer_type = "application"
 
@@ -38,7 +38,7 @@ module "product_alb" {
   # Target group for the product server
   target_groups = [
     {
-      name                 = "${local.name_prefix}-product-tg-${random_string.suffix.result}"
+      name                 = "mcp-prod-tg"
       backend_protocol     = "HTTP"
       backend_port         = var.container_port_product
       target_type          = "ip"
@@ -66,7 +66,7 @@ module "order_alb" {
   source  = "terraform-aws-modules/alb/aws"
   version = "~> 8.0"
 
-  name = "${local.name_prefix}-order-alb-${random_string.suffix.result}"
+  name = "mcp-order-alb"
 
   load_balancer_type = "application"
 
@@ -102,7 +102,7 @@ module "order_alb" {
   # Target group for the order server
   target_groups = [
     {
-      name                 = "${local.name_prefix}-order-tg-${random_string.suffix.result}"
+      name                 = "mcp-order-tg"
       backend_protocol     = "HTTP"
       backend_port         = var.container_port_order
       target_type          = "ip"

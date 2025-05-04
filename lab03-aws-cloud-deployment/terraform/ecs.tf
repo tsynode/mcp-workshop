@@ -13,20 +13,22 @@ resource "aws_ecs_cluster" "main" {
 
 # CloudWatch Log Groups
 resource "aws_cloudwatch_log_group" "product_server" {
-  name              = "/ecs/${local.name_prefix}-product-server"
+  name              = "/ecs/mcp-product-server"
   retention_in_days = 30
+  force_delete      = true
 
   tags = merge(local.tags, {
-    Name = "${local.name_prefix}-product-server-logs"
+    Name = "mcp-product-server-logs"
   })
 }
 
 resource "aws_cloudwatch_log_group" "order_server" {
-  name              = "/ecs/${local.name_prefix}-order-server"
+  name              = "/ecs/mcp-order-server"
   retention_in_days = 30
+  force_delete      = true
 
   tags = merge(local.tags, {
-    Name = "${local.name_prefix}-order-server-logs"
+    Name = "mcp-order-server-logs"
   })
 }
 

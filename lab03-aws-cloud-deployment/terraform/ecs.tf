@@ -21,11 +21,6 @@ resource "aws_cloudwatch_log_group" "product_server" {
   })
 }
 
-import {
-  to = aws_cloudwatch_log_group.product_server
-  id = "/ecs/mcp-product-server"
-}
-
 resource "aws_cloudwatch_log_group" "order_server" {
   name              = "/ecs/mcp-order-server"
   retention_in_days = 30
@@ -33,11 +28,6 @@ resource "aws_cloudwatch_log_group" "order_server" {
   tags = merge(local.tags, {
     Name = "mcp-order-server-logs"
   })
-}
-
-import {
-  to = aws_cloudwatch_log_group.order_server
-  id = "/ecs/mcp-order-server"
 }
 
 # Task Definition for Product Server

@@ -2,9 +2,30 @@ import streamlit as st
 import boto3
 import json
 import os
+import subprocess
 
 # Configure page
 st.set_page_config(page_title="Retail MCP Demo", layout="wide")
+
+# Get commit ID if available
+try:
+    commit_id = os.environ.get('COMMIT_ID', None)
+    if not commit_id:
+        # Try to get it from git if running locally
+        try:
+            result = subprocess.run(['git', 'rev-parse', '--short', 'HEAD'], 
+                                  stdout=subprocess.PIPE, 
+                                  stderr=subprocess.PIPE,
+                                  text=True,
+                                  timeout=1)
+            if result.returncode == 0:
+                commit_id = result.stdout.strip()
+            else:
+                commit_id = 'unknown'
+        except Exception:
+            commit_id = 'unknown'
+except Exception:
+    commit_id = 'unknown'
 
 # Set up Bedrock client
 bedrock_runtime = boto3.client(
@@ -123,3 +144,6 @@ if user_input:
             error_message = f"Error: {str(e)}"
             st.error(error_message)
             st.session_state.messages.append({"role": "assistant", "content": error_message})
+
+# Display commit ID in bottom right corner
+st.markdown(f"<div style='position: fixed; right: 10px; bottom: 10px; font-size: 12px; color: gray;'>Version: {commit_id}</div>", unsafe_allow_html=True)

@@ -142,6 +142,8 @@ jobs:
           context: ${{ env.BEDROCK_CLIENT_DIR }}
           push: true
           tags: ${{ env.BEDROCK_CLIENT_ECR_REPO }}:latest
+          build-args: |
+            COMMIT_ID=${{ github.sha }}
           
       - name: Terraform Apply Remaining Resources
         working-directory: ${{ env.TF_WORKING_DIR }}

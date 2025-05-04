@@ -215,7 +215,13 @@ if user_input:
                     tool_use_id = tool_use.get('toolUseId', '')
                     
                     st.sidebar.write(f"Executing tool: {tool_name}")
-                    st.sidebar.write(f"Tool input: {tool_input}")
+                    st.sidebar.write(f"Tool input: {json.dumps(tool_input, indent=2)}")
+                    st.sidebar.write(f"Tool input type: {type(tool_input)}")
+                    st.sidebar.write(f"Tool input keys: {list(tool_input.keys()) if isinstance(tool_input, dict) else 'Not a dict'}")
+                    
+                    # Debug the raw tool use object
+                    st.sidebar.write("Raw tool use object:")
+                    st.sidebar.json(tool_use)
                     
                     # Execute the tool call to the appropriate MCP server
                     import requests
@@ -234,16 +240,30 @@ if user_input:
                             # The tool name from Bedrock is the name of the MCP server, not the method
                             
                             # Determine which method to call based on the tool name and parameters
+                            st.sidebar.write("Determining method name based on:")
+                            st.sidebar.write(f"Tool name: {tool_name}")
+                            st.sidebar.write(f"Tool input keys: {list(tool_input.keys())}")
+                            
+                            # Use direct string comparison for method names
+                            method_name = None
+                            
                             if tool_name == "product-server":
-                                if 'productId' in tool_input and not 'quantity' in tool_input:
+                                if 'productId' in tool_input and 'quantity' not in tool_input:
                                     method_name = "get-product"
+                                    st.sidebar.write("Selected method: get-product (productId present, quantity not present)")
                                 else:
                                     method_name = "search-products"
+                                    st.sidebar.write("Selected method: search-products")
                             elif tool_name == "order-server":
                                 if 'orderId' in tool_input:
                                     method_name = "check-order-status"
+                                    st.sidebar.write("Selected method: check-order-status (orderId present)")
                                 else:
                                     method_name = "create-order"
+                                    st.sidebar.write("Selected method: create-order")
+                            else:
+                                st.sidebar.error(f"Unknown tool name: {tool_name}")
+                                method_name = "unknown"
                                 
                             mcp_request = {
                                 "jsonrpc": "2.0",

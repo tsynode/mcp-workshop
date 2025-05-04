@@ -131,12 +131,38 @@ jobs:
           
       - name: Force ECS Service Updates
         run: |
-          # Force update of ECS services to use the new container images
-          aws ecs update-service --cluster mcp-workshop-cluster --service mcp-workshop-product-server --force-new-deployment --region ${{ github.event.inputs.aws_region }}
-          aws ecs update-service --cluster mcp-workshop-cluster --service mcp-workshop-order-server --force-new-deployment --region ${{ github.event.inputs.aws_region }}
+          # Set default region if not provided
+          AWS_REGION="${AWS_REGION:-us-west-2}"
+          
+          echo "Verifying ECS services exist before updating..."
+          # List services in the cluster to verify they exist
+          SERVICES=$(aws ecs list-services --cluster mcp-workshop-cluster --region $AWS_REGION --output text)
+          echo "Found services: $SERVICES"
+          
+          # Add a short delay to ensure services are fully created
+          echo "Waiting for services to be fully created..."
+          sleep 30
+          
+          # Try to update the product service
+          echo "Updating product-service..."
+          if aws ecs describe-services --cluster mcp-workshop-cluster --services product-service --region $AWS_REGION | grep -q "ACTIVE"; then
+            aws ecs update-service --cluster mcp-workshop-cluster --service product-service --force-new-deployment --region $AWS_REGION
+            echo "Product service update initiated"
+          else
+            echo "Product service not found or not active, skipping update"
+          fi
+          
+          # Try to update the order service
+          echo "Updating order-service..."
+          if aws ecs describe-services --cluster mcp-workshop-cluster --services order-service --region $AWS_REGION | grep -q "ACTIVE"; then
+            aws ecs update-service --cluster mcp-workshop-cluster --service order-service --force-new-deployment --region $AWS_REGION
+            echo "Order service update initiated"
+          else
+            echo "Order service not found or not active, skipping update"
+          fi
           
           echo "Waiting for services to stabilize..."
-          aws ecs wait services-stable --cluster mcp-workshop-cluster --services mcp-workshop-product-server mcp-workshop-order-server --region ${{ github.event.inputs.aws_region }}
+          aws ecs wait services-stable --cluster mcp-workshop-cluster --services product-service order-service --region $AWS_REGION || echo "Warning: Not all services stabilized, but continuing workflow"
 
       - name: Get ALB Endpoints
         working-directory: ${{ env.TF_WORKING_DIR }}

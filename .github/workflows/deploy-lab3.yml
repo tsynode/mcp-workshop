@@ -133,13 +133,9 @@ jobs:
         working-directory: ${{ env.TF_WORKING_DIR }}
         id: get-alb-endpoints
         run: |
-          # Get the ALB DNS names directly from the deployment_info output
-          DEPLOYMENT_INFO=$(terraform output -raw deployment_info)
-          echo "$DEPLOYMENT_INFO"
-          
-          # Extract the ALB DNS names from the deployment_info
-          PRODUCT_ALB=$(echo "$DEPLOYMENT_INFO" | grep "Product Server ALB:" | cut -d' ' -f4 | cut -d'/' -f3)
-          ORDER_ALB=$(echo "$DEPLOYMENT_INFO" | grep "Order Server ALB:" | cut -d' ' -f4 | cut -d'/' -f3)
+          # Get the ALB DNS names directly from individual outputs instead of the formatted deployment_info
+          PRODUCT_ALB=$(terraform output -raw product_alb_dns)
+          ORDER_ALB=$(terraform output -raw order_alb_dns)
           
           echo "PRODUCT_ALB=$PRODUCT_ALB" >> $GITHUB_ENV
           echo "ORDER_ALB=$ORDER_ALB" >> $GITHUB_ENV

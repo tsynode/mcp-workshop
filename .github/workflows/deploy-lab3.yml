@@ -1,9 +1,17 @@
-# GitHub Actions workflow for deploying Lab 3 to AWS
-name: Deploy Lab 3 to AWS
+# GitHub Actions workflow for deploying MCP Workshop Labs to AWS
+name: Deploy MCP Workshop Lab to AWS
 
 on:
   workflow_dispatch:
     inputs:
+      lab_number:
+        description: 'Lab number to deploy'
+        required: true
+        default: '3'
+        type: choice
+        options:
+          - '3'
+          # Add more lab options as they become available
       aws_region:
         description: 'AWS Region to deploy to'
         required: true
@@ -21,9 +29,10 @@ on:
           - ap-southeast-2
 
 env:
-  TF_WORKING_DIR: ./lab03-aws-cloud-deployment/terraform
-  PRODUCT_SERVER_DIR: ./lab03-aws-cloud-deployment/src/product-server
-  ORDER_SERVER_DIR: ./lab03-aws-cloud-deployment/src/order-server
+  TF_WORKING_DIR: ${{ format('./lab{0}-aws-cloud-deployment/terraform', inputs.lab_number) }}
+  PRODUCT_SERVER_DIR: ${{ format('./lab{0}-aws-cloud-deployment/src/product-server', inputs.lab_number) }}
+  ORDER_SERVER_DIR: ${{ format('./lab{0}-aws-cloud-deployment/src/order-server', inputs.lab_number) }}
+  BEDROCK_CLIENT_DIR: ${{ format('./lab{0}-aws-cloud-deployment/src/bedrock-client', inputs.lab_number) }}
 
 jobs:
   build-and-deploy:
@@ -68,7 +77,7 @@ jobs:
         run: |
           terraform init \
             -backend-config="bucket=mcp-workshop-tf-state-${{ github.repository_owner }}" \
-            -backend-config="key=lab03/terraform.tfstate" \
+            -backend-config="key=lab${{ github.event.inputs.lab_number }}/terraform.tfstate" \
             -backend-config="region=${{ github.event.inputs.aws_region }}"
 
       - name: Terraform Apply ECR Only
@@ -88,22 +97,26 @@ jobs:
           # Set environment variables for ECR repository URLs
           echo "PRODUCT_ECR_REPO=${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/mcp-product-server" >> $GITHUB_ENV
           echo "ORDER_ECR_REPO=${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/mcp-order-server" >> $GITHUB_ENV
+          echo "BEDROCK_CLIENT_ECR_REPO=${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/bedrock-client" >> $GITHUB_ENV
           
           # Debug output
           echo "Product ECR URL: ${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/mcp-product-server"
           echo "Order ECR URL: ${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/mcp-order-server"
+          echo "Bedrock Client ECR URL: ${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/bedrock-client"
 
       - name: Validate ECR Repository URLs
         run: |
-          if [ -z "$PRODUCT_ECR_REPO" ] || [ -z "$ORDER_ECR_REPO" ]; then
+          if [ -z "$PRODUCT_ECR_REPO" ] || [ -z "$ORDER_ECR_REPO" ] || [ -z "$BEDROCK_CLIENT_ECR_REPO" ]; then
             echo "::error::ECR repository URLs are not properly set"
             echo "PRODUCT_ECR_REPO: $PRODUCT_ECR_REPO"
             echo "ORDER_ECR_REPO: $ORDER_ECR_REPO"
+            echo "BEDROCK_CLIENT_ECR_REPO: $BEDROCK_CLIENT_ECR_REPO"
             exit 1
           fi
           echo "ECR repository URLs are valid:"
           echo "PRODUCT_ECR_REPO: $PRODUCT_ECR_REPO"
           echo "ORDER_ECR_REPO: $ORDER_ECR_REPO"
+          echo "BEDROCK_CLIENT_ECR_REPO: $BEDROCK_CLIENT_ECR_REPO"
 
       - name: Login to Amazon ECR
         id: login-ecr
@@ -122,6 +135,13 @@ jobs:
           context: ${{ env.ORDER_SERVER_DIR }}
           push: true
           tags: ${{ env.ORDER_ECR_REPO }}:latest
+          
+      - name: Build and push Bedrock Client image
+        uses: docker/build-push-action@v4
+        with:
+          context: ${{ env.BEDROCK_CLIENT_DIR }}
+          push: true
+          tags: ${{ env.BEDROCK_CLIENT_ECR_REPO }}:latest
           
       - name: Terraform Apply Remaining Resources
         working-directory: ${{ env.TF_WORKING_DIR }}
@@ -161,35 +181,52 @@ jobs:
             echo "Order service not found or not active, skipping update"
           fi
           
+          # Try to update the bedrock client service
+          echo "Updating bedrock-client service..."
+          if aws ecs describe-services --cluster mcp-workshop-cluster --services bedrock-client --region $AWS_REGION | grep -q "ACTIVE"; then
+            aws ecs update-service --cluster mcp-workshop-cluster --service bedrock-client --force-new-deployment --region $AWS_REGION
+            echo "Bedrock client service update initiated"
+          else
+            echo "Bedrock client service not found or not active, skipping update"
+          fi
+          
           echo "Waiting for services to stabilize..."
-          aws ecs wait services-stable --cluster mcp-workshop-cluster --services product-service order-service --region $AWS_REGION || echo "Warning: Not all services stabilized, but continuing workflow"
+          aws ecs wait services-stable --cluster mcp-workshop-cluster --services product-service order-service bedrock-client --region $AWS_REGION || echo "Warning: Not all services stabilized, but continuing workflow"
 
       - name: Get ALB Endpoints
         working-directory: ${{ env.TF_WORKING_DIR }}
-        id: get-alb-endpoints
         run: |
           # Get the ALB DNS names directly from individual outputs and clean any debug output
           PRODUCT_ALB=$(terraform output -raw product_alb_dns | grep -o '[^:]*\.elb\.amazonaws\.com' | head -1)
           ORDER_ALB=$(terraform output -raw order_alb_dns | grep -o '[^:]*\.elb\.amazonaws\.com' | head -1)
+          BEDROCK_CLIENT_ALB=$(terraform output -raw bedrock_client_url | grep -o '[^:]*\.elb\.amazonaws\.com' | head -1)
           
           # Verify we have valid ALB DNS names
-          if [[ -z "$PRODUCT_ALB" || -z "$ORDER_ALB" ]]; then
+          if [[ -z "$PRODUCT_ALB" || -z "$ORDER_ALB" || -z "$BEDROCK_CLIENT_ALB" ]]; then
             echo "Error: Failed to extract valid ALB DNS names"
             exit 1
           fi
           
           echo "PRODUCT_ALB=$PRODUCT_ALB" >> $GITHUB_ENV
           echo "ORDER_ALB=$ORDER_ALB" >> $GITHUB_ENV
+          echo "BEDROCK_CLIENT_ALB=$BEDROCK_CLIENT_ALB" >> $GITHUB_ENV
           
           echo "Product ALB: $PRODUCT_ALB"
           echo "Order ALB: $ORDER_ALB"
+          echo "Bedrock Client ALB: $BEDROCK_CLIENT_ALB"
 
-      - name: Output Claude Desktop Configuration
+      - name: Output Deployment Information
         run: |
           echo "✅ Deployment Complete!"
           echo ""
-          echo "Add the following to your Claude Desktop configuration:"
+          echo "MCP Server Endpoints:"
+          echo "- Product Server: https://${{ env.PRODUCT_ALB }}/mcp"
+          echo "- Order Server: https://${{ env.ORDER_ALB }}/mcp"
           echo ""
+          echo "Bedrock Client UI:"
+          echo "- http://${{ env.BEDROCK_CLIENT_ALB }}"
+          echo ""
+          echo "Claude Desktop Configuration (if needed):"
           echo '{
             "mcpServers": {
               "aws-product-server": {
@@ -200,5 +237,3 @@ jobs:
               }
             }
           }'
-          echo ""
-          echo "Then restart Claude Desktop to connect to your cloud-hosted MCP servers."

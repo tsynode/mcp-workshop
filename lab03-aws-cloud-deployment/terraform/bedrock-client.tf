@@ -6,9 +6,23 @@ resource "aws_ecr_repository" "bedrock_client" {
   image_scanning_configuration {
     scan_on_push = true
   }
+
+  tags = merge(local.tags, {
+    Name = "${local.name_prefix}-bedrock-client-ecr-repo"
+  })
 }
 
-# Task Definition for Bedrock Client
+# CloudWatch Log Group for Bedrock Client
+resource "aws_cloudwatch_log_group" "bedrock_client" {
+  name              = "/ecs/bedrock-client"
+  retention_in_days = 30
+
+  tags = merge(local.tags, {
+    Name = "${local.name_prefix}-bedrock-client-logs"
+  })
+}
+
+# ECS Task Definition for Bedrock Client
 resource "aws_ecs_task_definition" "bedrock_client" {
   family                   = "bedrock-client"
   network_mode             = "awsvpc"
@@ -32,23 +46,38 @@ resource "aws_ecs_task_definition" "bedrock_client" {
         }
       ]
       
+      environment = [
+        {
+          name  = "PRODUCT_MCP_SERVER_URL"
+          value = "https://${aws_lb.product_alb.dns_name}/mcp"
+        },
+        {
+          name  = "ORDER_MCP_SERVER_URL"
+          value = "https://${aws_lb.order_alb.dns_name}/mcp"
+        }
+      ]
+      
       logConfiguration = {
         logDriver = "awslogs"
         options = {
-          "awslogs-group"         = aws_cloudwatch_log_group.ecs_logs.name
           "awslogs-region"        = var.aws_region
+          "awslogs-group"         = aws_cloudwatch_log_group.bedrock_client.name
           "awslogs-stream-prefix" = "bedrock-client"
         }
       }
     }
   ])
+  
+  tags = merge(local.tags, {
+    Name = "${local.name_prefix}-bedrock-client-task-definition"
+  })
 }
 
 # Security Group for Bedrock Client
 resource "aws_security_group" "bedrock_client_sg" {
-  name        = "bedrock-client-sg"
-  description = "Security group for Bedrock client"
-  vpc_id      = aws_vpc.main.id
+  name        = "${local.name_prefix}-bedrock-client-sg-${random_string.suffix.result}"
+  description = "Security group for Bedrock Client"
+  vpc_id      = module.vpc.vpc_id
 
   ingress {
     from_port   = 8501
@@ -63,6 +92,10 @@ resource "aws_security_group" "bedrock_client_sg" {
     protocol    = "-1"
     cidr_blocks = ["0.0.0.0/0"]
   }
+
+  tags = merge(local.tags, {
+    Name = "${local.name_prefix}-bedrock-client-sg"
+  })
 }
 
 # ECS Service for Bedrock Client
@@ -74,7 +107,7 @@ resource "aws_ecs_service" "bedrock_client" {
   launch_type     = "FARGATE"
 
   network_configuration {
-    subnets          = aws_subnet.private.*.id
+    subnets          = module.vpc.private_subnets
     security_groups  = [aws_security_group.bedrock_client_sg.id]
     assign_public_ip = false
   }
@@ -86,37 +119,50 @@ resource "aws_ecs_service" "bedrock_client" {
   }
 
   depends_on = [aws_lb_listener.bedrock_client]
+  
+  tags = merge(local.tags, {
+    Name = "${local.name_prefix}-bedrock-client-service"
+  })
 }
 
 # Application Load Balancer for Bedrock Client
 resource "aws_lb" "bedrock_client" {
-  name               = "bedrock-client-alb"
+  name               = "bedrock-client-alb-${random_string.suffix.result}"
   internal           = false
   load_balancer_type = "application"
   security_groups    = [aws_security_group.alb_sg.id]
-  subnets            = aws_subnet.public.*.id
+  subnets            = module.vpc.public_subnets
+
+  tags = merge(local.tags, {
+    Name = "${local.name_prefix}-bedrock-client-alb"
+  })
 }
 
 # Target Group for Bedrock Client
 resource "aws_lb_target_group" "bedrock_client" {
-  name        = "bedrock-client-tg"
+  name        = "bedrock-client-tg-${random_string.suffix.result}"
   port        = 8501
   protocol    = "HTTP"
-  vpc_id      = aws_vpc.main.id
+  vpc_id      = module.vpc.vpc_id
   target_type = "ip"
 
   health_check {
     path                = "/"
     port                = 8501
+    protocol            = "HTTP"
+    interval            = 30
+    timeout             = 5
     healthy_threshold   = 3
     unhealthy_threshold = 3
-    timeout             = 5
-    interval            = 30
     matcher             = "200"
   }
+  
+  tags = merge(local.tags, {
+    Name = "${local.name_prefix}-bedrock-client-target-group"
+  })
 }
 
-# Listener for Bedrock Client
+# Listener for Bedrock Client ALB
 resource "aws_lb_listener" "bedrock_client" {
   load_balancer_arn = aws_lb.bedrock_client.arn
   port              = 80
@@ -126,6 +172,10 @@ resource "aws_lb_listener" "bedrock_client" {
     type             = "forward"
     target_group_arn = aws_lb_target_group.bedrock_client.arn
   }
+
+  tags = merge(local.tags, {
+    Name = "${local.name_prefix}-bedrock-client-listener"
+  })
 }
 
 # IAM Policy for Bedrock Access
@@ -156,5 +206,12 @@ resource "aws_iam_role_policy_attachment" "bedrock_policy_attachment" {
 
 # Output the Bedrock Client URL
 output "bedrock_client_url" {
-  value = "http://${aws_lb.bedrock_client.dns_name}"
+  description = "URL for the Bedrock Client"
+  value       = "http://${aws_lb.bedrock_client.dns_name}"
+}
+
+# Output the Bedrock Client ECR Repository URL
+output "bedrock_client_repository_url" {
+  description = "URL of the Bedrock Client ECR repository"
+  value       = aws_ecr_repository.bedrock_client.repository_url
 }

@@ -166,6 +166,14 @@ The inspector will discover available tools on your MCP server and allow you to 
 3. Click "Run Tool"
 4. View the response to confirm your server is working correctly
 
+### Example of MCP Inspector in Action
+
+Here's what the MCP Inspector looks like when successfully connected to an MCP server and executing a tool call:
+
+![MCP Inspector Example](docs/images/mcp-inspector-example.png)
+
+*The screenshot shows the MCP Inspector successfully retrieving product information for the Coffee Maker (product ID: p003) from the product server.*
+
 ### 4. Troubleshooting Tips
 
 - If you encounter SSL certificate errors, use the `NODE_TLS_REJECT_UNAUTHORIZED=0` flag

@@ -47,17 +47,17 @@ MCP Workshop Lab 03 Deployment Information
 ------------------------------------------
 Region: ${var.aws_region}
 VPC ID: ${module.vpc.vpc_id}
-Product Server ALB: https://${module.product_alb.dns_name}/mcp
-Order Server ALB: https://${module.order_alb.dns_name}/mcp
+Product Server ALB: https://${module.product_alb.lb_dns_name}/mcp
+Order Server ALB: https://${module.order_alb.lb_dns_name}/mcp
 
 Claude Desktop Configuration:
 {
   "mcpServers": {
     "aws-product-server": {
-      "url": "https://${module.product_alb.dns_name}/mcp"
+      "url": "https://${module.product_alb.lb_dns_name}/mcp"
     },
     "aws-order-server": {
-      "url": "https://${module.order_alb.dns_name}/mcp"
+      "url": "https://${module.order_alb.lb_dns_name}/mcp"
     }
   }
 }
@@ -73,9 +73,9 @@ output "order_repository_url" {
 }
 
 output "product_alb_dns" {
-  value = module.product_alb.dns_name
+  value = module.product_alb.lb_dns_name
 }
 
 output "order_alb_dns" {
-  value = module.order_alb.dns_name
+  value = module.order_alb.lb_dns_name
 }

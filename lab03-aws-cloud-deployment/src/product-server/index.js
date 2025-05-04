@@ -7,7 +7,18 @@ import { z } from "zod";
 const server = new McpServer({
   name: "Retail Product Server (AWS)",
   version: "1.0.0",
-  protocolVersion: "2025-03-26"  // Updated protocol version with streaming support
+  protocolVersion: "2025-03-26",  // Updated protocol version with streaming support
+  onRequest: (request) => {
+    // Log detailed information about each incoming request
+    console.log('PRODUCT-SERVER DEBUG - Received request:', JSON.stringify({
+      method: request.method,
+      params: request.params,
+      id: request.id,
+      headers: request.transport?.req?.headers,
+      url: request.transport?.req?.url
+    }, null, 2));
+    return request;
+  }
 });
 
 // Sample product database (in a real application, this would be in a database)
@@ -126,6 +137,14 @@ server.tool(
 const PORT = process.env.PORT || 3000;
 
 const httpServer = createServer(async (req, res) => {
+  // Log raw HTTP request details
+  console.log('PRODUCT-SERVER RAW HTTP REQUEST:', JSON.stringify({
+    method: req.method,
+    url: req.url,
+    headers: req.headers,
+    timestamp: new Date().toISOString()
+  }, null, 2));
+
   // Set CORS headers to allow Claude Desktop to connect
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
@@ -158,6 +177,9 @@ const httpServer = createServer(async (req, res) => {
     
     req.on('end', async () => {
       try {
+        // Log the raw request body
+        console.log('PRODUCT-SERVER REQUEST BODY:', body);
+        
         // Parse the request body
         const requestData = JSON.parse(body);
         

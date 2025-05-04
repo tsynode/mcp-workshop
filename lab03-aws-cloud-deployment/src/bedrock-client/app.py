@@ -53,16 +53,14 @@ order_server_url = os.environ.get('ORDER_MCP_SERVER_URL', 'https://mcp-order-alb
 
 # Define your MCP servers
 mcp_tools = {
-    "tools": [
-        {
-            "name": "product-server",
+    "mcpServers": {
+        "product-server": {
             "url": product_server_url
         },
-        {
-            "name": "order-server",
+        "order-server": {
             "url": order_server_url
         }
-    ]
+    }
 }
 
 # Set up Streamlit UI

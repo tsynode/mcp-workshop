@@ -179,10 +179,10 @@ const httpServer = createServer(async (req, res) => {
           };
           
           // Process the request with streaming
-          await server.handleRequest(requestData, streamHandler);
+          await server.handleJsonRpcRequest(requestData, streamHandler);
         } else {
           // Standard JSON response
-          const response = await server.handleRequest(requestData);
+          const response = await server.handleJsonRpcRequest(requestData);
           res.writeHead(200, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify(response));
         }

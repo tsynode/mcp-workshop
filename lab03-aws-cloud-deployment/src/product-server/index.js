@@ -169,20 +169,8 @@ const httpServer = createServer(async (req, res) => {
         // Connect the transport to the server
         await server.connect(transport);
         
-        if (useSSE) {
-          // Set up SSE response
-          res.writeHead(200, {
-            'Content-Type': 'text/event-stream',
-            'Cache-Control': 'no-cache',
-            'Connection': 'keep-alive'
-          });
-          
-          // Handle the request with the transport
-          await transport.handleRequest(req, res, requestData);
-        } else {
-          // Handle the request with the transport in JSON mode
-          await transport.handleRequest(req, res, requestData);
-        }
+        // Let the transport handle all aspects of the response including headers
+        await transport.handleRequest(req, res, requestData);
       } catch (error) {
         console.error('Error processing request:', error);
         res.writeHead(500, { 'Content-Type': 'application/json' });

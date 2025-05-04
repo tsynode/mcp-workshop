@@ -132,11 +132,11 @@ jobs:
       - name: Force ECS Service Updates
         run: |
           # Force update of ECS services to use the new container images
-          aws ecs update-service --cluster mcp-cluster --service mcp-product-server --force-new-deployment --region ${{ github.event.inputs.aws_region }}
-          aws ecs update-service --cluster mcp-cluster --service mcp-order-server --force-new-deployment --region ${{ github.event.inputs.aws_region }}
+          aws ecs update-service --cluster mcp-workshop-cluster --service mcp-workshop-product-server --force-new-deployment --region ${{ github.event.inputs.aws_region }}
+          aws ecs update-service --cluster mcp-workshop-cluster --service mcp-workshop-order-server --force-new-deployment --region ${{ github.event.inputs.aws_region }}
           
           echo "Waiting for services to stabilize..."
-          aws ecs wait services-stable --cluster mcp-cluster --services mcp-product-server mcp-order-server --region ${{ github.event.inputs.aws_region }}
+          aws ecs wait services-stable --cluster mcp-workshop-cluster --services mcp-workshop-product-server mcp-workshop-order-server --region ${{ github.event.inputs.aws_region }}
 
       - name: Get ALB Endpoints
         working-directory: ${{ env.TF_WORKING_DIR }}

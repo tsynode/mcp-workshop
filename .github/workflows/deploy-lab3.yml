@@ -82,8 +82,28 @@ jobs:
         working-directory: ${{ env.TF_WORKING_DIR }}
         run: |
           # Set environment variables for ECR repository URLs
-          echo "PRODUCT_ECR_REPO=$(terraform output -json product_repository_url | jq -r .)" >> $GITHUB_ENV
-          echo "ORDER_ECR_REPO=$(terraform output -json order_repository_url | jq -r .)" >> $GITHUB_ENV
+          PRODUCT_REPO_URL=$(terraform output -raw product_repository_url)
+          ORDER_REPO_URL=$(terraform output -raw order_repository_url)
+          # Remove any debug output that might be appended
+          PRODUCT_REPO_URL=$(echo "$PRODUCT_REPO_URL" | grep -o '^[^:]*\.dkr\.ecr\.[^/]*/[^[:space:]]*')
+          ORDER_REPO_URL=$(echo "$ORDER_REPO_URL" | grep -o '^[^:]*\.dkr\.ecr\.[^/]*/[^[:space:]]*')
+          echo "PRODUCT_ECR_REPO=$PRODUCT_REPO_URL" >> $GITHUB_ENV
+          echo "ORDER_ECR_REPO=$ORDER_REPO_URL" >> $GITHUB_ENV
+          # Debug output
+          echo "Product ECR URL: $PRODUCT_REPO_URL"
+          echo "Order ECR URL: $ORDER_REPO_URL"
+
+      - name: Validate ECR Repository URLs
+        run: |
+          if [ -z "$PRODUCT_ECR_REPO" ] || [ -z "$ORDER_ECR_REPO" ]; then
+            echo "::error::ECR repository URLs are not properly set"
+            echo "PRODUCT_ECR_REPO: $PRODUCT_ECR_REPO"
+            echo "ORDER_ECR_REPO: $ORDER_ECR_REPO"
+            exit 1
+          fi
+          echo "ECR repository URLs are valid:"
+          echo "PRODUCT_ECR_REPO: $PRODUCT_ECR_REPO"
+          echo "ORDER_ECR_REPO: $ORDER_ECR_REPO"
 
       - name: Login to Amazon ECR
         id: login-ecr

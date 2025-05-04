@@ -59,8 +59,12 @@ tool_config = {
                 "name": "product-server",
                 "description": "Get product information from the retail catalog",
                 "inputSchema": {
-                    "mcp": {
-                        "url": product_server_url
+                    "json": {
+                        "type": "object",
+                        "properties": {},
+                        "x-mcp": {
+                            "url": product_server_url
+                        }
                     }
                 }
             }
@@ -70,8 +74,12 @@ tool_config = {
                 "name": "order-server",
                 "description": "Place and manage orders for products",
                 "inputSchema": {
-                    "mcp": {
-                        "url": order_server_url
+                    "json": {
+                        "type": "object",
+                        "properties": {},
+                        "x-mcp": {
+                            "url": order_server_url
+                        }
                     }
                 }
             }
@@ -111,7 +119,6 @@ if user_input:
                     "role": msg["role"],
                     "content": [
                         {
-                            "type": "text",
                             "text": msg["content"]
                         }
                     ]
@@ -143,15 +150,23 @@ if user_input:
             contents = message.get('content', [])
             
             for content in contents:
-                if content.get('type') == 'text':
+                if 'text' in content:
                     assistant_response += content.get('text', '')
-                elif content.get('type') == 'tool_use':
-                    tool_name = content.get('name', 'unknown')
-                    tool_input = json.dumps(content.get('input', {}), indent=2)
+                elif 'toolUse' in content:
+                    tool_use = content.get('toolUse', {})
+                    tool_name = tool_use.get('name', 'unknown')
+                    tool_input = json.dumps(tool_use.get('input', {}), indent=2)
                     tool_usage += f"\n\n**Tool Used: {tool_name}**\n```json\n{tool_input}\n```\n"
-                elif content.get('type') == 'tool_result':
-                    tool_result = json.dumps(content.get('content', {}), indent=2)
-                    tool_usage += f"\n**Tool Result:**\n```json\n{tool_result}\n```\n"
+                elif 'toolResult' in content:
+                    tool_result = content.get('toolResult', {})
+                    result_content = tool_result.get('content', [])
+                    result_text = ''
+                    for item in result_content:
+                        if 'json' in item:
+                            result_text = json.dumps(item.get('json', {}), indent=2)
+                        elif 'text' in item:
+                            result_text = item.get('text', '')
+                    tool_usage += f"\n**Tool Result:**\n```json\n{result_text}\n```\n"
             
             # Add tool usage information if any tools were used
             if tool_usage:

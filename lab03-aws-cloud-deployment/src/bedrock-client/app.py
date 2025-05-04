@@ -247,54 +247,37 @@ if user_input:
                                 json=mcp_request,
                                 headers={
                                     'Content-Type': 'application/json',
-                                    'Accept': 'application/json, text/event-stream'
+                                    'Accept': 'application/json'
                                 },
                                 verify=False  # Ignore SSL certificate validation
                             )
                             
-                            # Parse the MCP response
-                            st.sidebar.write("MCP Server Response:")
-                            st.sidebar.write(mcp_response.text)
+                            # Parse the JSON response
+                            mcp_result = mcp_response.json()
+                            st.sidebar.write(f"MCP response: {json.dumps(mcp_result, indent=2)}")
                             
                             # Extract the result from the MCP response
-                            tool_result = None
-                            if mcp_response.status_code == 200:
-                                # Handle SSE format if present
-                                if mcp_response.text.startswith('event:'):
-                                    # Extract the JSON from the SSE format
-                                    data_line = [line for line in mcp_response.text.split('\n') if line.startswith('data:')]
-                                    if data_line:
-                                        json_str = data_line[0][5:]  # Remove 'data:' prefix
-                                        tool_result_data = json.loads(json_str)
-                                else:
-                                    tool_result_data = mcp_response.json()
+                            if "result" in mcp_result:
+                                result = mcp_result["result"]
                                 
-                                # Check for result or error
-                                if 'result' in tool_result_data:
-                                    tool_result = tool_result_data['result']
-                                elif 'error' in tool_result_data:
-                                    tool_result = {"error": tool_result_data['error']}
-                            
-                            # Continue the conversation with the tool result
-                            if tool_result is not None:
-                                st.sidebar.write("Continuing conversation with tool result...")
-                                
-                                # Prepare the tool result for Bedrock
-                                tool_result_content = {
-                                    "toolResult": {
-                                        "toolUseId": tool_use_id,
-                                        "content": [{
-                                            "text": json.dumps(tool_result)
-                                        }]
-                                    }
+                                # Create the tool result
+                                tool_result = {
+                                    "toolUseId": tool_use_id,  # Use the correct variable name
+                                    "content": [{"json": result}]
                                 }
                                 
-                                # Add the tool result to messages
-                                # Based on AWS documentation, we need to append the tool result as a user message
+                                # Create a tool result message following AWS documentation pattern
                                 tool_result_message = {
                                     "role": "user",
-                                    "content": [tool_result_content]
+                                    "content": [
+                                        {
+                                            "toolResult": tool_result
+                                        }
+                                    ]
                                 }
+                                
+                                st.sidebar.write("Tool result message:")
+                                st.sidebar.json(tool_result_message)
                                 
                                 # Add the tool result message to the conversation history
                                 messages_for_model.append(tool_result_message)
@@ -309,10 +292,9 @@ if user_input:
                                         "temperature": temperature
                                     },
                                     toolConfig=tool_config
-                                )
-                                
-                                st.sidebar.write("Final Response:")
-                                st.sidebar.json(response)
+                                )                      
+                            st.sidebar.write("Final Response:")
+                            st.sidebar.json(response)
                         except Exception as e:
                             st.sidebar.error(f"Error executing tool call: {str(e)}")
                             import traceback

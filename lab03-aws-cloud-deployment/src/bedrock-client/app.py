@@ -121,21 +121,16 @@ if user_input:
             max_tokens = 4096
             temperature = 0.7
             
-            # Prepare the request body for Bedrock converse API
-            request_body = {
-                "messages": messages_for_model,
-                "toolConfig": tool_config,
-                "system": [{"text": "You are a retail assistant that can help customers find products and place orders."}],
-                "inferenceConfig": {
-                    "maxTokens": max_tokens,
-                    "temperature": temperature
-                }
-            }
-            
             # Call the converse API with the selected model
             response = bedrock_runtime.converse(
                 modelId=model_id,  # Use the selected model from sidebar
-                requestBody=json.dumps(request_body)
+                messages=messages_for_model,
+                system=[{"text": "You are a retail assistant that can help customers find products and place orders."}],
+                inferenceConfig={
+                    "maxTokens": max_tokens,
+                    "temperature": temperature
+                },
+                toolConfig=tool_config
             )
             
             # Process the response from the Bedrock Converse API

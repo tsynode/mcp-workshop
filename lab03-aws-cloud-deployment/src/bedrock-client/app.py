@@ -57,13 +57,31 @@ tool_config = {
         {
             "toolSpec": {
                 "name": "product-server",
-                "description": "Get product information from the retail catalog",
+                "description": "Get product information from the retail catalog. Use this to find products, check prices, and get product details.",
                 "inputSchema": {
                     "json": {
                         "type": "object",
-                        "properties": {},
+                        "properties": {
+                            "productId": {
+                                "type": "string",
+                                "description": "ID of the product to get details for"
+                            },
+                            "category": {
+                                "type": "string",
+                                "description": "Category of products to search for"
+                            },
+                            "maxPrice": {
+                                "type": "number",
+                                "description": "Maximum price for filtering products"
+                            },
+                            "inStockOnly": {
+                                "type": "boolean",
+                                "description": "Whether to only show products that are in stock"
+                            }
+                        },
                         "x-mcp": {
-                            "url": product_server_url
+                            "url": product_server_url,
+                            "insecureTls": True  # Allow self-signed certificates
                         }
                     }
                 }
@@ -72,13 +90,27 @@ tool_config = {
         {
             "toolSpec": {
                 "name": "order-server",
-                "description": "Place and manage orders for products",
+                "description": "Place and manage orders for products. Use this to create orders and check order status.",
                 "inputSchema": {
                     "json": {
                         "type": "object",
-                        "properties": {},
+                        "properties": {
+                            "productId": {
+                                "type": "string",
+                                "description": "ID of the product to order"
+                            },
+                            "quantity": {
+                                "type": "number",
+                                "description": "Quantity of the product to order"
+                            },
+                            "orderId": {
+                                "type": "string",
+                                "description": "ID of the order to check status for"
+                            }
+                        },
                         "x-mcp": {
-                            "url": order_server_url
+                            "url": order_server_url,
+                            "insecureTls": True  # Allow self-signed certificates
                         }
                     }
                 }
@@ -128,17 +160,36 @@ if user_input:
             max_tokens = 4096
             temperature = 0.7
             
+            # Log the tool configuration for debugging
+            st.sidebar.write("Tool Configuration:")
+            st.sidebar.json(tool_config)
+            
+            # Add more detailed system prompt to guide the model on using MCP tools
+            system_prompt = [
+                {"text": "You are a retail assistant that can help customers find products and place orders. "
+                        "You have access to two MCP tools: \n"
+                        "1. product-server: Use this to get product information from the retail catalog\n"
+                        "2. order-server: Use this to place and manage orders for products\n\n"
+                        "When asked about products, ALWAYS use the product-server tool.\n"
+                        "When asked to place orders, ALWAYS use the order-server tool.\n"
+                        "Show your work by explaining what tools you're using and why."}
+            ]
+            
             # Call the converse API with the selected model
             response = bedrock_runtime.converse(
                 modelId=model_id,  # Use the selected model from sidebar
                 messages=messages_for_model,
-                system=[{"text": "You are a retail assistant that can help customers find products and place orders."}],
+                system=system_prompt,
                 inferenceConfig={
                     "maxTokens": max_tokens,
                     "temperature": temperature
                 },
                 toolConfig=tool_config
             )
+            
+            # Log the raw response for debugging
+            st.sidebar.write("Raw Response:")
+            st.sidebar.json(response)
             
             # Process the response from the Bedrock Converse API
             assistant_response = ""
@@ -178,8 +229,29 @@ if user_input:
                 st.markdown(assistant_response)
                 
         except Exception as e:
+            import traceback
+            error_details = traceback.format_exc()
+            
+            # Create a more detailed error message
             error_message = f"Error: {str(e)}"
             st.error(error_message)
+            
+            # Log detailed error information in the sidebar for debugging
+            st.sidebar.write("Error Details:")
+            st.sidebar.code(error_details)
+            
+            # Try to extract more information about the error
+            if "SSL" in str(e) or "certificate" in str(e):
+                st.sidebar.warning("SSL Certificate Error: The Bedrock service is having trouble with the MCP server's SSL certificate.")
+                st.sidebar.info("Possible solutions: Use properly signed certificates for your MCP servers or configure Bedrock to accept self-signed certificates.")
+            elif "timeout" in str(e).lower():
+                st.sidebar.warning("Timeout Error: The request to the MCP server timed out.")
+                st.sidebar.info("Possible solutions: Check network connectivity, increase timeout settings, or verify the MCP server is responding quickly enough.")
+            elif "connect" in str(e).lower():
+                st.sidebar.warning("Connection Error: Could not connect to the MCP server.")
+                st.sidebar.info("Possible solutions: Verify the MCP server URL is correct and the server is running. Check network connectivity and security group settings.")
+            
+            # Add the error message to the chat history
             st.session_state.messages.append({"role": "assistant", "content": error_message})
 
 # Display commit ID in bottom right corner

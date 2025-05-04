@@ -29,10 +29,10 @@ on:
           - ap-southeast-2
 
 env:
-  TF_WORKING_DIR: ${{ format('./lab{0}-aws-cloud-deployment/terraform', inputs.lab_number) }}
-  PRODUCT_SERVER_DIR: ${{ format('./lab{0}-aws-cloud-deployment/src/product-server', inputs.lab_number) }}
-  ORDER_SERVER_DIR: ${{ format('./lab{0}-aws-cloud-deployment/src/order-server', inputs.lab_number) }}
-  BEDROCK_CLIENT_DIR: ${{ format('./lab{0}-aws-cloud-deployment/src/bedrock-client', inputs.lab_number) }}
+  TF_WORKING_DIR: ${{ format('./lab0{0}-aws-cloud-deployment/terraform', inputs.lab_number) }}
+  PRODUCT_SERVER_DIR: ${{ format('./lab0{0}-aws-cloud-deployment/src/product-server', inputs.lab_number) }}
+  ORDER_SERVER_DIR: ${{ format('./lab0{0}-aws-cloud-deployment/src/order-server', inputs.lab_number) }}
+  BEDROCK_CLIENT_DIR: ${{ format('./lab0{0}-aws-cloud-deployment/src/bedrock-client', inputs.lab_number) }}
 
 jobs:
   build-and-deploy:
@@ -77,7 +77,7 @@ jobs:
         run: |
           terraform init \
             -backend-config="bucket=mcp-workshop-tf-state-${{ github.repository_owner }}" \
-            -backend-config="key=lab${{ github.event.inputs.lab_number }}/terraform.tfstate" \
+            -backend-config="key=lab0${{ github.event.inputs.lab_number }}/terraform.tfstate" \
             -backend-config="region=${{ github.event.inputs.aws_region }}"
 
       - name: Terraform Apply ECR Only

@@ -33,7 +33,7 @@ on:
         type: string
 
 env:
-  TF_WORKING_DIR: ${{ format('./lab{0}-aws-cloud-deployment/terraform', inputs.lab_number) }}
+  TF_WORKING_DIR: ${{ format('./lab0{0}-aws-cloud-deployment/terraform', inputs.lab_number) }}
 
 jobs:
   destroy:
@@ -65,7 +65,7 @@ jobs:
         run: |
           terraform init \
             -backend-config="bucket=mcp-workshop-tf-state-${{ github.repository_owner }}" \
-            -backend-config="key=lab${{ github.event.inputs.lab_number }}/terraform.tfstate" \
+            -backend-config="key=lab0${{ github.event.inputs.lab_number }}/terraform.tfstate" \
             -backend-config="region=${{ github.event.inputs.aws_region }}"
 
       - name: Terraform Destroy

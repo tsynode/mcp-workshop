@@ -8,11 +8,11 @@ import requests
 import datetime
 from dotenv import load_dotenv
 
-# Import Inline Agent SDK components
-from InlineAgent.tools.mcp import MCPHttp
-from InlineAgent.action_group import ActionGroup
-from InlineAgent.agent import InlineAgent
-from InlineAgent import AgentAppConfig
+# Import Amazon Bedrock Inline Agent SDK components
+from amazon_bedrock_inline_agent.tools.mcp import MCPHttp
+from amazon_bedrock_inline_agent.action_group import ActionGroup
+from amazon_bedrock_inline_agent.agent import InlineAgent
+from amazon_bedrock_inline_agent import AgentAppConfig
 
 # Load environment variables
 load_dotenv()

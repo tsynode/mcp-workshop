@@ -15,8 +15,6 @@ RUN pip install --upgrade pip && \
 # Set build arguments and environment variables
 ARG COMMIT_ID=unknown
 ENV COMMIT_ID=${COMMIT_ID}
-# Disable OpenTelemetry to avoid dependency conflicts
-ENV INLINEAGENT_DISABLE_TELEMETRY=true
 
 COPY . .
 

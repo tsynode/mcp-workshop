@@ -96,21 +96,21 @@ jobs:
           REGION=${{ github.event.inputs.aws_region }}
           
           # Set environment variables for ECR repository URLs
-          echo "PRODUCT_ECR_REPO=${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/product-server" >> $GITHUB_ENV
-          echo "ORDER_ECR_REPO=${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/order-server" >> $GITHUB_ENV
+          echo "PRODUCT_ECR_REPO=${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/mcp-product-server" >> $GITHUB_ENV
+          echo "ORDER_ECR_REPO=${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/mcp-order-server" >> $GITHUB_ENV
           echo "BEDROCK_CLIENT_ECR_REPO=${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/bedrock-client" >> $GITHUB_ENV
           echo "INLINE_AGENT_ECR_REPO=${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/inline-agent" >> $GITHUB_ENV
           
           # Export these variables for use in subsequent steps
-          export PRODUCT_ECR_REPO=${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/product-server
-          export ORDER_ECR_REPO=${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/order-server
+          export PRODUCT_ECR_REPO=${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/mcp-product-server
+          export ORDER_ECR_REPO=${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/mcp-order-server
           export BEDROCK_CLIENT_ECR_REPO=${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/bedrock-client
           export INLINE_AGENT_ECR_REPO=${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/inline-agent
           
-          echo "Product ECR URL: ${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/mcp-product-server"
-          echo "Order ECR URL: ${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/mcp-order-server"
-          echo "Bedrock Client ECR URL: ${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/bedrock-client"
-          echo "Inline Agent ECR URL: ${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/inline-agent"
+          echo "Product ECR URL: ${PRODUCT_ECR_REPO}"
+          echo "Order ECR URL: ${ORDER_ECR_REPO}"
+          echo "Bedrock Client ECR URL: ${BEDROCK_CLIENT_ECR_REPO}"
+          echo "Inline Agent ECR URL: ${INLINE_AGENT_ECR_REPO}"
 
       - name: Validate ECR Repository URLs
         run: |

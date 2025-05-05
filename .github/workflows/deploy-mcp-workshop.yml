@@ -33,6 +33,7 @@ env:
   PRODUCT_SERVER_DIR: ${{ format('./lab0{0}-aws-cloud-deployment/src/product-server', inputs.lab_number) }}
   ORDER_SERVER_DIR: ${{ format('./lab0{0}-aws-cloud-deployment/src/order-server', inputs.lab_number) }}
   BEDROCK_CLIENT_DIR: ${{ format('./lab0{0}-aws-cloud-deployment/src/bedrock-client', inputs.lab_number) }}
+  INLINE_AGENT_DIR: ${{ format('./lab0{0}-aws-cloud-deployment/src/inline-agent', inputs.lab_number) }}
 
 jobs:
   build-and-deploy:
@@ -84,7 +85,7 @@ jobs:
         working-directory: ${{ env.TF_WORKING_DIR }}
         run: |
           # Create only the ECR repositories first
-          terraform apply -auto-approve -var="aws_region=${{ github.event.inputs.aws_region }}" -var="github_repository=${{ github.repository }}" -target=aws_ecr_repository.product_repository -target=aws_ecr_repository.order_repository -target=aws_ecr_repository.bedrock_client
+          terraform apply -auto-approve -var="aws_region=${{ github.event.inputs.aws_region }}" -var="github_repository=${{ github.repository }}" -target=aws_ecr_repository.product_repository -target=aws_ecr_repository.order_repository -target=aws_ecr_repository.bedrock_client -target=aws_ecr_repository.inline_agent
 
       - name: Get ECR Repository URLs
         working-directory: ${{ env.TF_WORKING_DIR }}
@@ -95,22 +96,30 @@ jobs:
           REGION=${{ github.event.inputs.aws_region }}
           
           # Set environment variables for ECR repository URLs
-          echo "PRODUCT_ECR_REPO=${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/mcp-product-server" >> $GITHUB_ENV
-          echo "ORDER_ECR_REPO=${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/mcp-order-server" >> $GITHUB_ENV
+          echo "PRODUCT_ECR_REPO=${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/product-server" >> $GITHUB_ENV
+          echo "ORDER_ECR_REPO=${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/order-server" >> $GITHUB_ENV
           echo "BEDROCK_CLIENT_ECR_REPO=${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/bedrock-client" >> $GITHUB_ENV
+          echo "INLINE_AGENT_ECR_REPO=${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/inline-agent" >> $GITHUB_ENV
           
-          # Debug output
+          # Export these variables for use in subsequent steps
+          export PRODUCT_ECR_REPO=${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/product-server
+          export ORDER_ECR_REPO=${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/order-server
+          export BEDROCK_CLIENT_ECR_REPO=${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/bedrock-client
+          export INLINE_AGENT_ECR_REPO=${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/inline-agent
+          
           echo "Product ECR URL: ${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/mcp-product-server"
           echo "Order ECR URL: ${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/mcp-order-server"
           echo "Bedrock Client ECR URL: ${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/bedrock-client"
+          echo "Inline Agent ECR URL: ${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/inline-agent"
 
       - name: Validate ECR Repository URLs
         run: |
-          if [ -z "$PRODUCT_ECR_REPO" ] || [ -z "$ORDER_ECR_REPO" ] || [ -z "$BEDROCK_CLIENT_ECR_REPO" ]; then
+          if [ -z "$PRODUCT_ECR_REPO" ] || [ -z "$ORDER_ECR_REPO" ] || [ -z "$BEDROCK_CLIENT_ECR_REPO" ] || [ -z "$INLINE_AGENT_ECR_REPO" ]; then
             echo "::error::ECR repository URLs are not properly set"
             echo "PRODUCT_ECR_REPO: $PRODUCT_ECR_REPO"
             echo "ORDER_ECR_REPO: $ORDER_ECR_REPO"
             echo "BEDROCK_CLIENT_ECR_REPO: $BEDROCK_CLIENT_ECR_REPO"
+            echo "INLINE_AGENT_ECR_REPO: $INLINE_AGENT_ECR_REPO"
             exit 1
           fi
           echo "ECR repository URLs are valid:"
@@ -142,6 +151,13 @@ jobs:
           context: ${{ env.BEDROCK_CLIENT_DIR }}
           push: true
           tags: ${{ env.BEDROCK_CLIENT_ECR_REPO }}:latest
+          
+      - name: Build and push Inline Agent image
+        uses: docker/build-push-action@v4
+        with:
+          context: ${{ env.INLINE_AGENT_DIR }}
+          push: true
+          tags: ${{ env.INLINE_AGENT_ECR_REPO }}:latest
           build-args: |
             COMMIT_ID=${{ github.sha }}
           
@@ -192,8 +208,17 @@ jobs:
             echo "Bedrock client service not found or not active, skipping update"
           fi
           
+          # Try to update the inline agent service
+          echo "Updating inline-agent service..."
+          if aws ecs describe-services --cluster mcp-workshop-cluster --services inline-agent --region $AWS_REGION | grep -q "ACTIVE"; then
+            aws ecs update-service --cluster mcp-workshop-cluster --service inline-agent --force-new-deployment --region $AWS_REGION
+            echo "Inline Agent service update initiated"
+          else
+            echo "Inline Agent service not found or not active, skipping update"
+          fi
+          
           echo "Waiting for services to stabilize..."
-          aws ecs wait services-stable --cluster mcp-workshop-cluster --services product-service order-service bedrock-client --region $AWS_REGION || echo "Warning: Not all services stabilized, but continuing workflow"
+          aws ecs wait services-stable --cluster mcp-workshop-cluster --services product-service order-service bedrock-client inline-agent --region $AWS_REGION || echo "Warning: Not all services stabilized, but continuing workflow"
 
       - name: Get ALB Endpoints
         working-directory: ${{ env.TF_WORKING_DIR }}
@@ -202,9 +227,10 @@ jobs:
           PRODUCT_ALB=$(terraform output -raw product_alb_dns | grep -o '[^:]*\.elb\.amazonaws\.com' | head -1)
           ORDER_ALB=$(terraform output -raw order_alb_dns | grep -o '[^:]*\.elb\.amazonaws\.com' | head -1)
           BEDROCK_CLIENT_ALB=$(terraform output -raw bedrock_client_url | grep -o '[^:]*\.elb\.amazonaws\.com' | head -1)
+          INLINE_AGENT_ALB=$(terraform output -raw inline_agent_url | grep -o '[^:]*\.elb\.amazonaws\.com' | head -1)
           
           # Verify we have valid ALB DNS names
-          if [[ -z "$PRODUCT_ALB" || -z "$ORDER_ALB" || -z "$BEDROCK_CLIENT_ALB" ]]; then
+          if [[ -z "$PRODUCT_ALB" || -z "$ORDER_ALB" || -z "$BEDROCK_CLIENT_ALB" || -z "$INLINE_AGENT_ALB" ]]; then
             echo "Error: Failed to extract valid ALB DNS names"
             exit 1
           fi
@@ -212,17 +238,24 @@ jobs:
           echo "PRODUCT_ALB=$PRODUCT_ALB" >> $GITHUB_ENV
           echo "ORDER_ALB=$ORDER_ALB" >> $GITHUB_ENV
           echo "BEDROCK_CLIENT_ALB=$BEDROCK_CLIENT_ALB" >> $GITHUB_ENV
+          echo "INLINE_AGENT_ALB=$INLINE_AGENT_ALB" >> $GITHUB_ENV
           
           echo "Product ALB: $PRODUCT_ALB"
           echo "Order ALB: $ORDER_ALB"
           echo "Bedrock Client ALB: $BEDROCK_CLIENT_ALB"
+          echo "Inline Agent ALB: $INLINE_AGENT_ALB"
 
       - name: Output Deployment Information
         run: |
+          # Make sure we have the ALB URLs available in this step
+          BEDROCK_CLIENT_ALB_URL="${BEDROCK_CLIENT_ALB:-${{ env.BEDROCK_CLIENT_ALB }}}"
+          INLINE_AGENT_ALB_URL="${INLINE_AGENT_ALB:-${{ env.INLINE_AGENT_ALB }}}"
+          
           echo "✅ Deployment Complete!"
           echo ""
           echo "============================================"
-          echo "🔗 BEDROCK CLIENT URL: http://${{ env.BEDROCK_CLIENT_ALB }}"
+          echo "🔗 BEDROCK CLIENT URL: http://${BEDROCK_CLIENT_ALB_URL}"
+          echo "🔗 INLINE AGENT URL: http://${INLINE_AGENT_ALB_URL}"
           echo "============================================"
           echo ""
           echo "MCP Server Endpoints:"
@@ -240,3 +273,8 @@ jobs:
               }
             }
           }'
+          echo ""
+          echo "Inline Agent Implementation:"
+          echo "The Inline Agent implementation provides a more streamlined approach to MCP integration"
+          echo "compared to the direct Bedrock Converse API implementation. It uses the Amazon Bedrock"
+          echo "Inline Agent SDK to simplify tool use handling and improve the conversation flow."

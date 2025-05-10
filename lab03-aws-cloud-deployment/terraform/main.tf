@@ -63,7 +63,7 @@ MCP Workshop Lab 03 Deployment Information
 ------------------------------------------
 Region: ${var.aws_region}
 
-# Lambda-based MCP Servers
+# Lambda-based MCP Servers (via API Gateway)
 Product Server: ${aws_apigatewayv2_api.mcp_api.api_endpoint}/product-server/mcp
 Order Server: ${aws_apigatewayv2_api.mcp_api.api_endpoint}/order-server/mcp
 
@@ -72,7 +72,7 @@ MCP Playground: http://${module.mcp_playground_alb.lb_dns_name}
 
 Claude Desktop Configuration:
 {
-  "mcpServers": {
+  "mcp_servers": {
     "aws-product-server": {
       "url": "${aws_apigatewayv2_api.mcp_api.api_endpoint}/product-server/mcp"
     },

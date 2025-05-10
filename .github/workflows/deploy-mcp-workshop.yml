@@ -175,7 +175,7 @@ jobs:
           # Get the MCP Playground ALB DNS name with fallback
           MCP_PLAYGROUND_ALB=$(terraform output -raw mcp_playground_url 2>/dev/null | grep -o '[^:]*\.elb\.amazonaws\.com' | head -1 || echo "pending-mcp-playground-alb")
           
-          # Get the Lambda-based MCP server endpoints with fallbacks
+          # Get the Lambda-based MCP server endpoints via API Gateway with fallbacks
           PRODUCT_LAMBDA_ENDPOINT=$(terraform output -raw product_server_endpoint 2>/dev/null || echo "pending-product-endpoint")
           ORDER_LAMBDA_ENDPOINT=$(terraform output -raw order_server_endpoint 2>/dev/null || echo "pending-order-endpoint")
           
@@ -186,8 +186,8 @@ jobs:
           echo "ORDER_LAMBDA_ENDPOINT=$ORDER_LAMBDA_ENDPOINT" >> $GITHUB_ENV
           
           echo "MCP Playground ALB: $MCP_PLAYGROUND_ALB"
-          echo "Product Lambda Endpoint: $PRODUCT_LAMBDA_ENDPOINT"
-          echo "Order Lambda Endpoint: $ORDER_LAMBDA_ENDPOINT"
+          echo "Product Lambda Endpoint (API Gateway): $PRODUCT_LAMBDA_ENDPOINT"
+          echo "Order Lambda Endpoint (API Gateway): $ORDER_LAMBDA_ENDPOINT"
           
           # Continue the workflow even if endpoints are pending
           echo "Deployment in progress. Some endpoints may not be available yet."

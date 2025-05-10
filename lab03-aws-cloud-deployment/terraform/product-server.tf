@@ -150,49 +150,8 @@ resource "aws_lambda_permission" "order_server_permission" {
   source_arn    = "${aws_apigatewayv2_api.mcp_api.execution_arn}/*/*/order-server/*"
 }
 
-# ALB for Product Server (if needed for direct access)
-module "product_alb" {
-  source  = "terraform-aws-modules/alb/aws"
-  version = "8.7.0"
-
-  name = "prod-alb-${random_string.suffix.result}"
-
-  load_balancer_type = "application"
-
-  vpc_id          = module.vpc.vpc_id
-  subnets         = module.vpc.public_subnets
-  security_groups = [aws_security_group.alb_sg.id]
-
-  target_groups = [
-    {
-      name_prefix      = "prod-"
-      backend_protocol = "HTTP"
-      backend_port     = 80
-      target_type      = "lambda"
-      health_check = {
-        enabled             = true
-        interval            = 30
-        path                = "/health"
-        port                = "traffic-port"
-        healthy_threshold   = 3
-        unhealthy_threshold = 3
-        timeout             = 6
-        protocol            = "HTTP"
-        matcher             = "200-399"
-      }
-    }
-  ]
-
-  http_tcp_listeners = [
-    {
-      port               = 80
-      protocol           = "HTTP"
-      target_group_index = 0
-    }
-  ]
-
-  tags = local.tags
-}
+# Note: ALB for Product Server has been removed as it's redundant with API Gateway access
+# Lambda functions are accessed through the API Gateway endpoints defined above
 
 # Outputs for the Lambda functions are defined in main.tf
 # API Gateway endpoint is defined in main.tf

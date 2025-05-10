@@ -308,76 +308,68 @@ if user_input:
                                 
                             st.sidebar.write(f"Parsed MCP response: {json.dumps(mcp_result, indent=2)}")
                             
-                            # Create a simplified conversation with just the necessary components
-                            # 1. The most recent user message
-                            user_message = st.session_state.messages[-1] if st.session_state.messages else {"role": "user", "content": ""}
+                            # Following Amazon's official documentation for handling tool results
+                            # https://docs.aws.amazon.com/bedrock/latest/userguide/tool-use.html
                             
-                            # Create a minimal conversation history
-                            simplified_messages = [
-                                {
-                                    "role": user_message["role"],
-                                    "content": user_message["content"]
-                                }
-                            ]
+                            # 1. Get the original user message that started this conversation
+                            original_messages = []
+                            for msg in st.session_state.messages:
+                                if msg["role"] == "user":
+                                    original_messages.append({
+                                        "role": "user",
+                                        "content": msg["content"]
+                                    })
+                                    break
                             
-                            # 2. The assistant's response with the tool use
-                            assistant_message = {
-                                "role": "assistant",
-                                "content": [
-                                    {
-                                        "toolUse": {
-                                            "toolUseId": tool_use_id,
-                                            "name": tool_name,
-                                            "input": tool_input
-                                        }
-                                    }
-                                ]
-                            }
-                            simplified_messages.append(assistant_message)
-                            
-                            # 3. Prepare the tool result based on success or error
+                            # 2. Prepare the tool result based on success or error
                             if "error" in mcp_result:
                                 st.sidebar.error(f"MCP server returned an error: {json.dumps(mcp_result['error'], indent=2)}")
                                 # Create an error message for the tool result
                                 error_message = mcp_result.get('error', {}).get('message', 'Unknown error')
-                                tool_result = {
-                                    "toolUseId": tool_use_id,
-                                    "content": [{"json": {"error": error_message}}],
-                                    "status": "error"
-                                }
+                                tool_result_content = {"error": error_message}
                             elif "result" in mcp_result:
                                 # Extract the result from the MCP response for success case
-                                result = mcp_result["result"]
-                                tool_result = {
-                                    "toolUseId": tool_use_id,
-                                    "content": [{"json": result}]
-                                }
+                                tool_result_content = mcp_result["result"]
                             else:
                                 # Fallback for unexpected response format
-                                tool_result = {
-                                    "toolUseId": tool_use_id,
-                                    "content": [{"json": {"message": "Unexpected response format from MCP server"}}],
-                                    "status": "error"
-                                }
-                                
-                            # Add the tool result message
+                                tool_result_content = {"message": "Unexpected response format from MCP server"}
+                            
+                            # 3. Create a new conversation with the original request
+                            # This is the key part - we're starting a completely new conversation
+                            # with just the original user message and the tool result
+                            
+                            # Get the original user message or use a default if none exists
+                            if not original_messages:
+                                original_messages = [{
+                                    "role": "user",
+                                    "content": "Show me products"
+                                }]
+                            
+                            # Add the tool result directly to the original message
+                            # This is the key difference - we're not trying to maintain the conversation
+                            # history with the tool use, just sending the result directly
                             tool_result_message = {
                                 "role": "user",
-                                "content": [
-                                    {
-                                        "toolResult": tool_result
-                                    }
-                                ]
+                                "content": original_messages[0]["content"],
+                                "toolResult": {
+                                    "toolName": tool_name,
+                                    "toolUseId": tool_use_id,
+                                    "content": tool_result_content
+                                }
                             }
-                            simplified_messages.append(tool_result_message)
                             
-                            st.sidebar.write("Simplified conversation with tool result:")
-                            st.sidebar.json(simplified_messages)
+                            # Log the simplified approach
+                            st.sidebar.write("Using simplified approach with direct tool result:")
+                            st.sidebar.json(tool_result_message)
                                 
-                            # Continue the conversation with the updated messages
+                            # Continue the conversation with the simplified message
+                            # Create a new messages array with just the tool result message
+                            new_messages = [tool_result_message]
+                            
+                            # Continue the conversation with just the tool result
                             response = bedrock_runtime.converse(
                                 modelId=model_id,
-                                messages=simplified_messages,
+                                messages=new_messages,
                                 system=system_prompt,
                                 inferenceConfig={
                                     "maxTokens": max_tokens,

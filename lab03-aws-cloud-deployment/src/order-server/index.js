@@ -1,186 +1,57 @@
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
-import { createServer } from "http";
-import { z } from "zod";
+import './logging.js';
+import log4js from 'log4js';
+import express from 'express';
+import metadata from './metadata.js';
+import transport from './transport.js';
 
-// Create MCP server instance
-const server = new McpServer({
-  name: "Retail Order Server (AWS)",
-  version: "1.0.0",
-  protocolVersion: "2025-03-26",  // Updated protocol version with streaming support
-  onRequest: (request) => {
-    // Log detailed information about each incoming request
-    console.log('ORDER-SERVER DEBUG - Received request:', JSON.stringify({
-      method: request.method,
-      params: request.params,
-      id: request.id,
-      headers: request.transport?.req?.headers,
-      url: request.transport?.req?.url
-    }, null, 2));
-    return request;
-  }
-});
+await metadata.init();
 
-// In-memory order storage (in a real application, this would be in a database)
-const orders = [];
-
-// Generate a unique order ID
-function generateOrderId() {
-  return `ord-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
-}
-
-// Define the create-order tool
-server.tool(
-  "create-order",
-  "Create a new order for products",
-  {
-    productId: z.string(),
-    quantity: z.number().min(1)
-  },
-  async ({ productId, quantity }) => {
-    console.log(`Creating order for product ID: ${productId}, quantity: ${quantity}`);
-    
-    const orderId = generateOrderId();
-    
-    const order = {
-      orderId,
-      productId,
-      quantity,
-      status: "pending",
-      createdAt: new Date().toISOString(),
-      totalPrice: 0 // In real world, would fetch from product service
-    };
-    
-    orders.push(order);
-    
-    return {
-      content: [{
-        type: "text",
-        text: JSON.stringify({
-          message: "Order created successfully",
-          order
-        }, null, 2)
-      }]
-    };
-  }
-);
-
-// Define the check-order-status tool
-server.tool(
-  "check-order-status",
-  "Check the status of an existing order",
-  {
-    orderId: z.string().optional()
-  },
-  async ({ orderId }) => {
-    console.log(`Checking status for order ID: ${orderId || 'all'}`);
-    
-    if (orderId) {
-      const order = orders.find(o => o.orderId === orderId);
-      
-      if (!order) {
-        return {
-          content: [{
-            type: "text",
-            text: `Order with ID ${orderId} not found`
-          }]
-        };
-      }
-      
-      return {
-        content: [{
-          type: "text",
-          text: JSON.stringify(order, null, 2)
-        }]
-      };
-    } else {
-      // Return all orders if no orderId is provided
-      return {
-        content: [{
-          type: "text",
-          text: JSON.stringify(orders, null, 2)
-        }]
-      };
-    }
-  }
-);
-
-// Create HTTP server
+const l = log4js.getLogger();
 const PORT = process.env.PORT || 3001;
 
-const httpServer = createServer(async (req, res) => {
-  // Log raw HTTP request details
-  console.log('ORDER-SERVER RAW HTTP REQUEST:', JSON.stringify({
-    method: req.method,
-    url: req.url,
-    headers: req.headers,
-    timestamp: new Date().toISOString()
-  }, null, 2));
+// This function is using Lambda Web Adapter to run express.js on Lambda
+// https://github.com/awslabs/aws-lambda-web-adapter
+const app = express();
+app.use(express.json());
 
-  // Set CORS headers to allow Claude Desktop to connect
+// Add CORS headers for all routes
+app.use((req, res, next) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Accept');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Accept, Authorization');
   
-  // Handle preflight OPTIONS request
   if (req.method === 'OPTIONS') {
-    res.writeHead(204);
-    res.end();
+    res.sendStatus(204);
     return;
   }
   
-  // Health check endpoint for ALB
-  if (req.url === '/health') {
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ status: 'healthy' }));
-    return;
-  }
-  
-  // Handle MCP endpoint
-  if (req.url === '/mcp' && req.method === 'POST') {
-    // Check if client accepts SSE
-    const acceptHeader = req.headers.accept || '';
-    const useSSE = acceptHeader.includes('text/event-stream');
-    
-    let body = '';
-    req.on('data', chunk => {
-      body += chunk.toString();
-    });
-    
-    req.on('end', async () => {
-      try {
-        // Log the raw request body
-        console.log('ORDER-SERVER REQUEST BODY:', body);
-        
-        // Parse the request body
-        const requestData = JSON.parse(body);
-        
-        // Create a transport for handling the request
-        const transport = new StreamableHTTPServerTransport({
-          enableJsonResponse: !useSSE
-        });
-        
-        // Connect the transport to the server
-        await server.connect(transport);
-        
-        // Let the transport handle all aspects of the response including headers
-        await transport.handleRequest(req, res, requestData);
-      } catch (error) {
-        console.error('Error processing request:', error);
-        res.writeHead(500, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: 'Internal server error' }));
-      }
-    });
-  } else {
-    // Not found
-    res.writeHead(404, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ error: 'Not found' }));
-  }
+  next();
 });
 
-// Start the server
-httpServer.listen(PORT, () => {
-  console.log(`Order MCP Server running on port ${PORT}`);
-  console.log(`Health check endpoint: http://localhost:${PORT}/health`);
-  console.log(`MCP endpoint: http://localhost:${PORT}/mcp`);
+// Health check endpoint for ALB
+app.get('/health', (req, res) => {
+  res.json({ status: 'healthy' });
 });
+
+// Debug logging middleware
+app.use(async (req, res, next) => {
+  l.debug(`> ${req.method} ${req.originalUrl}`);
+  l.debug(req.body);
+  return next();
+});
+
+// Bootstrap the MCP transport
+await transport.bootstrap(app);
+
+// Start the server when not running in Lambda
+if (!process.env.AWS_LAMBDA_FUNCTION_NAME) {
+  app.listen(PORT, () => {
+    l.debug(metadata.all);
+    l.debug(`Order MCP Server running on port ${PORT}`);
+    l.debug(`Health check endpoint: http://localhost:${PORT}/health`);
+    l.debug(`MCP endpoint: http://localhost:${PORT}/mcp`);
+  });
+}
+
+// For Lambda, export the app
+export default app;

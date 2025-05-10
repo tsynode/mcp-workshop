@@ -1,5 +1,5 @@
-# GitHub Actions workflow for deploying MCP Workshop Labs to AWS
-name: Deploy MCP Workshop Lab to AWS
+# GitHub Actions workflow for deploying MCP Workshop Labs to AWS with hybrid architecture
+name: Deploy MCP Workshop Lab to AWS (Hybrid Architecture)
 
 on:
   workflow_dispatch:
@@ -11,7 +11,6 @@ on:
         type: choice
         options:
           - '3'
-          # Add more lab options as they become available
       aws_region:
         description: 'AWS Region to deploy to'
         required: true
@@ -33,7 +32,6 @@ env:
   PRODUCT_SERVER_DIR: ${{ format('./lab0{0}-aws-cloud-deployment/src/product-server', inputs.lab_number) }}
   ORDER_SERVER_DIR: ${{ format('./lab0{0}-aws-cloud-deployment/src/order-server', inputs.lab_number) }}
   BEDROCK_CLIENT_DIR: ${{ format('./lab0{0}-aws-cloud-deployment/src/bedrock-client', inputs.lab_number) }}
-  INLINE_AGENT_DIR: ${{ format('./lab0{0}-aws-cloud-deployment/src/inline-agent', inputs.lab_number) }}
 
 jobs:
   build-and-deploy:
@@ -85,83 +83,54 @@ jobs:
         working-directory: ${{ env.TF_WORKING_DIR }}
         run: |
           # Create only the ECR repositories first
-          terraform apply -auto-approve -var="aws_region=${{ github.event.inputs.aws_region }}" -var="github_repository=${{ github.repository }}" -target=aws_ecr_repository.product_repository -target=aws_ecr_repository.order_repository -target=aws_ecr_repository.bedrock_client -target=aws_ecr_repository.inline_agent
+          terraform apply -auto-approve -var="aws_region=${{ github.event.inputs.aws_region }}" -var="github_repository=${{ github.repository }}" -target=aws_ecr_repository.bedrock_client
 
       - name: Get ECR Repository URLs
         working-directory: ${{ env.TF_WORKING_DIR }}
         run: |
-          # Hardcode the ECR repository URLs based on the repository names
-          # This avoids issues with Terraform output parsing
+          # Get the ECR repository URL for the Bedrock client
           ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
           REGION=${{ github.event.inputs.aws_region }}
           
           # Set environment variables for ECR repository URLs
-          echo "PRODUCT_ECR_REPO=${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/mcp-product-server" >> $GITHUB_ENV
-          echo "ORDER_ECR_REPO=${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/mcp-order-server" >> $GITHUB_ENV
-          echo "BEDROCK_CLIENT_ECR_REPO=${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/bedrock-client" >> $GITHUB_ENV
-          echo "INLINE_AGENT_ECR_REPO=${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/inline-agent" >> $GITHUB_ENV
-          
-          # Export these variables for use in subsequent steps
-          export PRODUCT_ECR_REPO=${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/mcp-product-server
-          export ORDER_ECR_REPO=${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/mcp-order-server
           export BEDROCK_CLIENT_ECR_REPO=${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/bedrock-client
-          export INLINE_AGENT_ECR_REPO=${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/inline-agent
           
-          echo "Product ECR URL: ${PRODUCT_ECR_REPO}"
-          echo "Order ECR URL: ${ORDER_ECR_REPO}"
+          echo "BEDROCK_CLIENT_ECR_REPO=${BEDROCK_CLIENT_ECR_REPO}" >> $GITHUB_ENV
+          
           echo "Bedrock Client ECR URL: ${BEDROCK_CLIENT_ECR_REPO}"
-          echo "Inline Agent ECR URL: ${INLINE_AGENT_ECR_REPO}"
 
       - name: Validate ECR Repository URLs
         run: |
-          if [ -z "$PRODUCT_ECR_REPO" ] || [ -z "$ORDER_ECR_REPO" ] || [ -z "$BEDROCK_CLIENT_ECR_REPO" ] || [ -z "$INLINE_AGENT_ECR_REPO" ]; then
-            echo "::error::ECR repository URLs are not properly set"
-            echo "PRODUCT_ECR_REPO: $PRODUCT_ECR_REPO"
-            echo "ORDER_ECR_REPO: $ORDER_ECR_REPO"
-            echo "BEDROCK_CLIENT_ECR_REPO: $BEDROCK_CLIENT_ECR_REPO"
-            echo "INLINE_AGENT_ECR_REPO: $INLINE_AGENT_ECR_REPO"
+          if [ -z "$BEDROCK_CLIENT_ECR_REPO" ]; then
+            echo "Error: Failed to get ECR repository URLs"
             exit 1
           fi
-          echo "ECR repository URLs are valid:"
-          echo "PRODUCT_ECR_REPO: $PRODUCT_ECR_REPO"
-          echo "ORDER_ECR_REPO: $ORDER_ECR_REPO"
-          echo "BEDROCK_CLIENT_ECR_REPO: $BEDROCK_CLIENT_ECR_REPO"
 
       - name: Login to Amazon ECR
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v1
 
-      - name: Build and push Product Server image
-        uses: docker/build-push-action@v4
-        with:
-          context: ${{ env.PRODUCT_SERVER_DIR }}
-          push: true
-          tags: ${{ env.PRODUCT_ECR_REPO }}:latest
-
-      - name: Build and push Order Server image
-        uses: docker/build-push-action@v4
-        with:
-          context: ${{ env.ORDER_SERVER_DIR }}
-          push: true
-          tags: ${{ env.ORDER_ECR_REPO }}:latest
-          
       - name: Build and push Bedrock Client image
         uses: docker/build-push-action@v4
         with:
           context: ${{ env.BEDROCK_CLIENT_DIR }}
           push: true
           tags: ${{ env.BEDROCK_CLIENT_ECR_REPO }}:latest
-          
-      - name: Build and push Inline Agent image
-        uses: docker/build-push-action@v4
+
+      - name: Install Node.js for Lambda functions
+        uses: actions/setup-node@v3
         with:
-          context: ${{ env.INLINE_AGENT_DIR }}
-          push: true
-          tags: ${{ env.INLINE_AGENT_ECR_REPO }}:latest
-          build-args: |
-            COMMIT_ID=${{ github.sha }}
-          
-      - name: Terraform Apply Remaining Resources
+          node-version: '20'
+
+      - name: Install dependencies for Product Server
+        working-directory: ${{ env.PRODUCT_SERVER_DIR }}
+        run: npm install
+
+      - name: Install dependencies for Order Server
+        working-directory: ${{ env.ORDER_SERVER_DIR }}
+        run: npm install
+
+      - name: Terraform Apply
         working-directory: ${{ env.TF_WORKING_DIR }}
         run: |
           # Now deploy the rest of the infrastructure
@@ -170,36 +139,13 @@ jobs:
       - name: Force ECS Service Updates
         run: |
           # Set default region if not provided
-          AWS_REGION="${AWS_REGION:-us-west-2}"
+          AWS_REGION="${AWS_REGION:-${{ github.event.inputs.aws_region }}}"
           
           echo "Verifying ECS services exist before updating..."
           # List services in the cluster to verify they exist
-          SERVICES=$(aws ecs list-services --cluster mcp-workshop-cluster --region $AWS_REGION --output text)
-          echo "Found services: $SERVICES"
+          aws ecs list-services --cluster mcp-workshop-cluster --region $AWS_REGION
           
-          # Add a short delay to ensure services are fully created
-          echo "Waiting for services to be fully created..."
-          sleep 30
-          
-          # Try to update the product service
-          echo "Updating product-service..."
-          if aws ecs describe-services --cluster mcp-workshop-cluster --services product-service --region $AWS_REGION | grep -q "ACTIVE"; then
-            aws ecs update-service --cluster mcp-workshop-cluster --service product-service --force-new-deployment --region $AWS_REGION
-            echo "Product service update initiated"
-          else
-            echo "Product service not found or not active, skipping update"
-          fi
-          
-          # Try to update the order service
-          echo "Updating order-service..."
-          if aws ecs describe-services --cluster mcp-workshop-cluster --services order-service --region $AWS_REGION | grep -q "ACTIVE"; then
-            aws ecs update-service --cluster mcp-workshop-cluster --service order-service --force-new-deployment --region $AWS_REGION
-            echo "Order service update initiated"
-          else
-            echo "Order service not found or not active, skipping update"
-          fi
-          
-          # Try to update the bedrock client service
+          # Try to update the Bedrock client service
           echo "Updating bedrock-client service..."
           if aws ecs describe-services --cluster mcp-workshop-cluster --services bedrock-client --region $AWS_REGION | grep -q "ACTIVE"; then
             aws ecs update-service --cluster mcp-workshop-cluster --service bedrock-client --force-new-deployment --region $AWS_REGION
@@ -208,73 +154,65 @@ jobs:
             echo "Bedrock client service not found or not active, skipping update"
           fi
           
-          # Try to update the inline agent service
-          echo "Updating inline-agent service..."
-          if aws ecs describe-services --cluster mcp-workshop-cluster --services inline-agent --region $AWS_REGION | grep -q "ACTIVE"; then
-            aws ecs update-service --cluster mcp-workshop-cluster --service inline-agent --force-new-deployment --region $AWS_REGION
-            echo "Inline Agent service update initiated"
-          else
-            echo "Inline Agent service not found or not active, skipping update"
-          fi
-          
           echo "Waiting for services to stabilize..."
-          aws ecs wait services-stable --cluster mcp-workshop-cluster --services product-service order-service bedrock-client inline-agent --region $AWS_REGION || echo "Warning: Not all services stabilized, but continuing workflow"
+          aws ecs wait services-stable --cluster mcp-workshop-cluster --services bedrock-client --region $AWS_REGION || echo "Warning: Not all services stabilized, but continuing workflow"
 
-      - name: Get ALB Endpoints
+      - name: Get Endpoints
         working-directory: ${{ env.TF_WORKING_DIR }}
         run: |
-          # Get the ALB DNS names directly from individual outputs and clean any debug output
-          PRODUCT_ALB=$(terraform output -raw product_alb_dns | grep -o '[^:]*\.elb\.amazonaws\.com' | head -1)
-          ORDER_ALB=$(terraform output -raw order_alb_dns | grep -o '[^:]*\.elb\.amazonaws\.com' | head -1)
+          # Get the Bedrock client ALB DNS name
           BEDROCK_CLIENT_ALB=$(terraform output -raw bedrock_client_url | grep -o '[^:]*\.elb\.amazonaws\.com' | head -1)
-          INLINE_AGENT_ALB=$(terraform output -raw inline_agent_url | grep -o '[^:]*\.elb\.amazonaws\.com' | head -1)
           
-          # Verify we have valid ALB DNS names
-          if [[ -z "$PRODUCT_ALB" || -z "$ORDER_ALB" || -z "$BEDROCK_CLIENT_ALB" || -z "$INLINE_AGENT_ALB" ]]; then
-            echo "Error: Failed to extract valid ALB DNS names"
+          # Get the Lambda-based MCP server endpoints
+          PRODUCT_LAMBDA_ENDPOINT=$(terraform output -raw product_server_lambda_endpoint)
+          ORDER_LAMBDA_ENDPOINT=$(terraform output -raw order_server_lambda_endpoint)
+          
+          # Verify we have valid endpoints
+          if [[ -z "$BEDROCK_CLIENT_ALB" || -z "$PRODUCT_LAMBDA_ENDPOINT" || -z "$ORDER_LAMBDA_ENDPOINT" ]]; then
+            echo "Error: Failed to extract valid endpoints"
             exit 1
           fi
           
-          echo "PRODUCT_ALB=$PRODUCT_ALB" >> $GITHUB_ENV
-          echo "ORDER_ALB=$ORDER_ALB" >> $GITHUB_ENV
           echo "BEDROCK_CLIENT_ALB=$BEDROCK_CLIENT_ALB" >> $GITHUB_ENV
-          echo "INLINE_AGENT_ALB=$INLINE_AGENT_ALB" >> $GITHUB_ENV
+          echo "PRODUCT_LAMBDA_ENDPOINT=$PRODUCT_LAMBDA_ENDPOINT" >> $GITHUB_ENV
+          echo "ORDER_LAMBDA_ENDPOINT=$ORDER_LAMBDA_ENDPOINT" >> $GITHUB_ENV
           
-          echo "Product ALB: $PRODUCT_ALB"
-          echo "Order ALB: $ORDER_ALB"
           echo "Bedrock Client ALB: $BEDROCK_CLIENT_ALB"
-          echo "Inline Agent ALB: $INLINE_AGENT_ALB"
+          echo "Product Lambda Endpoint: $PRODUCT_LAMBDA_ENDPOINT"
+          echo "Order Lambda Endpoint: $ORDER_LAMBDA_ENDPOINT"
 
       - name: Output Deployment Information
         run: |
-          # Make sure we have the ALB URLs available in this step
+          # Make sure we have the endpoints available in this step
           BEDROCK_CLIENT_ALB_URL="${BEDROCK_CLIENT_ALB:-${{ env.BEDROCK_CLIENT_ALB }}}"
-          INLINE_AGENT_ALB_URL="${INLINE_AGENT_ALB:-${{ env.INLINE_AGENT_ALB }}}"
+          PRODUCT_LAMBDA_ENDPOINT="${PRODUCT_LAMBDA_ENDPOINT:-${{ env.PRODUCT_LAMBDA_ENDPOINT }}}"
+          ORDER_LAMBDA_ENDPOINT="${ORDER_LAMBDA_ENDPOINT:-${{ env.ORDER_LAMBDA_ENDPOINT }}}"
           
           echo "✅ Deployment Complete!"
           echo ""
           echo "============================================"
           echo "🔗 BEDROCK CLIENT URL: http://${BEDROCK_CLIENT_ALB_URL}"
-          echo "🔗 INLINE AGENT URL: http://${INLINE_AGENT_ALB_URL}"
           echo "============================================"
           echo ""
-          echo "MCP Server Endpoints:"
-          echo "- Product Server: https://${{ env.PRODUCT_ALB }}/mcp"
-          echo "- Order Server: https://${{ env.ORDER_ALB }}/mcp"
+          echo "MCP Server Endpoints (Lambda-based):"
+          echo "- Product Server: ${PRODUCT_LAMBDA_ENDPOINT}"
+          echo "- Order Server: ${ORDER_LAMBDA_ENDPOINT}"
           echo ""
-          echo "Claude Desktop Configuration (if needed):"
+          echo "Claude Desktop Configuration:"
           echo '{
             "mcpServers": {
               "aws-product-server": {
-                "url": "https://${{ env.PRODUCT_ALB }}/mcp"
+                "url": "'"${PRODUCT_LAMBDA_ENDPOINT}"'"
               },
               "aws-order-server": {
-                "url": "https://${{ env.ORDER_ALB }}/mcp"
+                "url": "'"${ORDER_LAMBDA_ENDPOINT}"'"
               }
             }
           }'
           echo ""
-          echo "Inline Agent Implementation:"
-          echo "The Inline Agent implementation provides a more streamlined approach to MCP integration"
-          echo "compared to the direct Bedrock Converse API implementation. It uses the Amazon Bedrock"
-          echo "Inline Agent SDK to simplify tool use handling and improve the conversation flow."
+          echo "Hybrid Architecture Implementation:"
+          echo "This deployment uses a hybrid architecture with:"
+          echo "- Serverless MCP servers running on AWS Lambda"
+          echo "- Container-based Bedrock client running on ECS/Fargate"
+          echo ""
+          echo "This approach gives you the flexibility to test both stateless and persistent implementations."

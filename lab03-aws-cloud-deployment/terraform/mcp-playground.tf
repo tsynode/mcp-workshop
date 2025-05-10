@@ -1,6 +1,6 @@
-# ECR Repository for Bedrock Client
-resource "aws_ecr_repository" "bedrock_client" {
-  name                 = "bedrock-client"
+# ECR Repository for MCP Playground
+resource "aws_ecr_repository" "mcp_playground" {
+  name                 = "mcp-playground"
   image_tag_mutability = "MUTABLE"
 
   image_scanning_configuration {
@@ -8,23 +8,23 @@ resource "aws_ecr_repository" "bedrock_client" {
   }
 
   tags = merge(local.tags, {
-    Name = "${local.name_prefix}-bedrock-client-ecr-repo"
+    Name = "${local.name_prefix}-mcp-playground-ecr-repo"
   })
 }
 
-# CloudWatch Log Group for Bedrock Client
-resource "aws_cloudwatch_log_group" "bedrock_client" {
-  name              = "/ecs/bedrock-client"
+# CloudWatch Log Group for MCP Playground
+resource "aws_cloudwatch_log_group" "mcp_playground" {
+  name              = "/ecs/mcp-playground"
   retention_in_days = 30
 
   tags = merge(local.tags, {
-    Name = "${local.name_prefix}-bedrock-client-logs"
+    Name = "${local.name_prefix}-mcp-playground-logs"
   })
 }
 
-# ECS Task Definition for Bedrock Client
-resource "aws_ecs_task_definition" "bedrock_client" {
-  family                   = "bedrock-client"
+# ECS Task Definition for MCP Playground
+resource "aws_ecs_task_definition" "mcp_playground" {
+  family                   = "mcp-playground"
   network_mode             = "awsvpc"
   requires_compatibilities = ["FARGATE"]
   cpu                      = 256
@@ -36,13 +36,13 @@ resource "aws_ecs_task_definition" "bedrock_client" {
   depends_on = [
     aws_ecr_repository.product_repository,
     aws_ecr_repository.order_repository,
-    aws_ecr_repository.bedrock_client
+    aws_ecr_repository.mcp_playground
   ]
 
   container_definitions = jsonencode([
     {
-      name      = "bedrock-client"
-      image     = "${aws_ecr_repository.bedrock_client.repository_url}:latest"
+      name      = "mcp-playground"
+      image     = "${aws_ecr_repository.mcp_playground.repository_url}:latest"
       essential = true
       
       portMappings = [
@@ -68,22 +68,22 @@ resource "aws_ecs_task_definition" "bedrock_client" {
         logDriver = "awslogs"
         options = {
           "awslogs-region"        = var.aws_region
-          "awslogs-group"         = aws_cloudwatch_log_group.bedrock_client.name
-          "awslogs-stream-prefix" = "bedrock-client"
+          "awslogs-group"         = aws_cloudwatch_log_group.mcp_playground.name
+          "awslogs-stream-prefix" = "mcp-playground"
         }
       }
     }
   ])
   
   tags = merge(local.tags, {
-    Name = "${local.name_prefix}-bedrock-client-task-definition"
+    Name = "${local.name_prefix}-mcp-playground-task-definition"
   })
 }
 
-# Security Group for Bedrock Client
-resource "aws_security_group" "bedrock_client_sg" {
-  name        = "${local.name_prefix}-bedrock-client-sg-${random_string.suffix.result}"
-  description = "Security group for Bedrock Client"
+# Security Group for MCP Playground
+resource "aws_security_group" "mcp_playground_sg" {
+  name        = "${local.name_prefix}-mcp-playground-sg-${random_string.suffix.result}"
+  description = "Security group for MCP Playground"
   vpc_id      = module.vpc.vpc_id
 
   ingress {
@@ -101,60 +101,60 @@ resource "aws_security_group" "bedrock_client_sg" {
   }
 
   tags = merge(local.tags, {
-    Name = "${local.name_prefix}-bedrock-client-sg"
+    Name = "${local.name_prefix}-mcp-playground-sg"
   })
 }
 
-# ECS Service for Bedrock Client
-resource "aws_ecs_service" "bedrock_client" {
-  name            = "bedrock-client"
+# ECS Service for MCP Playground
+resource "aws_ecs_service" "mcp_playground" {
+  name            = "mcp-playground"
   cluster         = aws_ecs_cluster.main.id
-  task_definition = aws_ecs_task_definition.bedrock_client.arn
+  task_definition = aws_ecs_task_definition.mcp_playground.arn
   desired_count   = 1
   launch_type     = "FARGATE"
   
   # This ensures this resource is only created after the ECR repositories, task definition, and load balancer
   depends_on = [
-    aws_ecr_repository.bedrock_client,
-    aws_ecs_task_definition.bedrock_client,
-    aws_lb_listener.bedrock_client
+    aws_ecr_repository.mcp_playground,
+    aws_ecs_task_definition.mcp_playground,
+    aws_lb_listener.mcp_playground
   ]
 
   network_configuration {
     subnets          = module.vpc.private_subnets
-    security_groups  = [aws_security_group.bedrock_client_sg.id]
+    security_groups  = [aws_security_group.mcp_playground_sg.id]
     assign_public_ip = false
   }
 
   load_balancer {
-    target_group_arn = aws_lb_target_group.bedrock_client.arn
-    container_name   = "bedrock-client"
+    target_group_arn = aws_lb_target_group.mcp_playground.arn
+    container_name   = "mcp-playground"
     container_port   = 8501
   }
 
   # depends_on is defined above
   
   tags = merge(local.tags, {
-    Name = "${local.name_prefix}-bedrock-client-service"
+    Name = "${local.name_prefix}-mcp-playground-service"
   })
 }
 
-# Application Load Balancer for Bedrock Client
-resource "aws_lb" "bedrock_client" {
-  name               = "bedrock-client-alb-${random_string.suffix.result}"
+# Application Load Balancer for MCP Playground
+resource "aws_lb" "mcp_playground" {
+  name               = "mcp-playground-alb-${random_string.suffix.result}"
   internal           = false
   load_balancer_type = "application"
   security_groups    = [aws_security_group.alb_sg.id]
   subnets            = module.vpc.public_subnets
 
   tags = merge(local.tags, {
-    Name = "${local.name_prefix}-bedrock-client-alb"
+    Name = "${local.name_prefix}-mcp-playground-alb"
   })
 }
 
-# Target Group for Bedrock Client
-resource "aws_lb_target_group" "bedrock_client" {
-  name        = "bedrock-client-tg-${random_string.suffix.result}"
+# Target Group for MCP Playground
+resource "aws_lb_target_group" "mcp_playground" {
+  name        = "mcp-playground-tg-${random_string.suffix.result}"
   port        = 8501
   protocol    = "HTTP"
   vpc_id      = module.vpc.vpc_id
@@ -172,23 +172,23 @@ resource "aws_lb_target_group" "bedrock_client" {
   }
   
   tags = merge(local.tags, {
-    Name = "${local.name_prefix}-bedrock-client-target-group"
+    Name = "${local.name_prefix}-mcp-playground-target-group"
   })
 }
 
-# Listener for Bedrock Client ALB
-resource "aws_lb_listener" "bedrock_client" {
-  load_balancer_arn = aws_lb.bedrock_client.arn
+# Listener for MCP Playground ALB
+resource "aws_lb_listener" "mcp_playground" {
+  load_balancer_arn = aws_lb.mcp_playground.arn
   port              = 80
   protocol          = "HTTP"
 
   default_action {
     type             = "forward"
-    target_group_arn = aws_lb_target_group.bedrock_client.arn
+    target_group_arn = aws_lb_target_group.mcp_playground.arn
   }
 
   tags = merge(local.tags, {
-    Name = "${local.name_prefix}-bedrock-client-listener"
+    Name = "${local.name_prefix}-mcp-playground-listener"
   })
 }
 
@@ -218,14 +218,14 @@ resource "aws_iam_role_policy_attachment" "bedrock_policy_attachment" {
   policy_arn = aws_iam_policy.bedrock_access.arn
 }
 
-# Output the Bedrock Client URL
-output "bedrock_client_url" {
-  description = "URL for the Bedrock Client"
-  value       = "http://${aws_lb.bedrock_client.dns_name}"
+# Output the MCP Playground URL
+output "mcp_playground_url" {
+  description = "URL for the MCP Playground"
+  value       = "http://${aws_lb.mcp_playground.dns_name}"
 }
 
-# Output the Bedrock Client ECR Repository URL
-output "bedrock_client_repository_url" {
-  description = "URL of the Bedrock Client ECR repository"
-  value       = aws_ecr_repository.bedrock_client.repository_url
+# Output the MCP Playground ECR Repository URL
+output "mcp_playground_repository_url" {
+  description = "URL of the MCP Playground ECR repository"
+  value       = aws_ecr_repository.mcp_playground.repository_url
 }

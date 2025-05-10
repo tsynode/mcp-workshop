@@ -3,6 +3,7 @@ import boto3
 import json
 import os
 import subprocess
+import uuid
 
 # Configure page
 st.set_page_config(page_title="Retail MCP Demo", layout="wide")
@@ -267,59 +268,75 @@ if user_input:
                     # Execute the tool call to the appropriate MCP server
                     import requests
                     
-                    # Determine which MCP server to call based on the tool name
-                    mcp_url = ''
-                    if tool_name == 'product-server':
-                        mcp_url = product_server_url
-                    elif tool_name == 'order-server':
-                        mcp_url = order_server_url
+                    # Map of server names to their URLs
+                    server_urls = {
+                        'product-server': product_server_url,
+                        'order-server': order_server_url
+                    }
+                    
+                    # Method mapping based on server and input parameters
+                    method_mapping = {
+                        'product-server': {
+                            'get-product': lambda input: 'productId' in input and 'quantity' not in input,
+                            'search-products': lambda input: True  # Default fallback
+                        },
+                        'order-server': {
+                            'check-order-status': lambda input: 'orderId' in input,
+                            'create-order': lambda input: True  # Default fallback
+                        }
+                    }
+                    
+                    # Get the server URL
+                    mcp_url = server_urls.get(tool_name, '')
                     
                     if mcp_url:
                         try:
-                            # Format the request for the MCP server
-                            # The tool name in the MCP server is the method name to call
-                            # The tool name from Bedrock is the name of the MCP server, not the method
-                            
                             # Determine which method to call based on the tool name and parameters
-                            st.sidebar.write("Determining method name based on:")
-                            st.sidebar.write(f"Tool name: {tool_name}")
-                            st.sidebar.write(f"Tool input keys: {list(tool_input.keys())}")
+                            st.sidebar.write(f"Tool: {tool_name} | Input keys: {list(tool_input.keys())}")
                             
-                            # Use direct string comparison for method names
+                            # Find the first matching method for this server
                             method_name = None
+                            for method, condition in method_mapping.get(tool_name, {}).items():
+                                if condition(tool_input):
+                                    method_name = method
+                                    break
                             
-                            if tool_name == "product-server":
-                                if 'productId' in tool_input and 'quantity' not in tool_input:
-                                    method_name = "get-product"
-                                    st.sidebar.write("Selected method: get-product (productId present, quantity not present)")
-                                else:
-                                    method_name = "search-products"
-                                    st.sidebar.write("Selected method: search-products")
-                            elif tool_name == "order-server":
-                                if 'orderId' in tool_input:
-                                    method_name = "check-order-status"
-                                    st.sidebar.write("Selected method: check-order-status (orderId present)")
-                                else:
-                                    method_name = "create-order"
-                                    st.sidebar.write("Selected method: create-order")
-                            else:
-                                st.sidebar.error(f"Unknown tool name: {tool_name}")
+                            if not method_name:
+                                st.sidebar.error(f"Could not determine method for tool: {tool_name}")
                                 method_name = "unknown"
                                 
+                            st.sidebar.write(f"Selected method: {method_name}")
+                                
+                            # Create a standard JSON-RPC 2.0 request
                             mcp_request = {
                                 "jsonrpc": "2.0",
                                 "method": method_name,
                                 "params": tool_input,
-                                "id": "1"
+                                "id": str(uuid.uuid4())  # Use a unique ID for each request
                             }
                             
-                            st.sidebar.write(f"Using method: {method_name}")
-                            
-                            # Make the request to the MCP server
-                            st.sidebar.write(f"Sending request to MCP server: {mcp_url}")
+                            # Log the request for debugging
+                            st.sidebar.write(f"MCP Request to {tool_name} → {method_name}")
                             st.sidebar.json(mcp_request)
                             
-                            # Use verify=False to ignore SSL certificate validation
+                            # Function to parse MCP responses (handles both JSON and SSE formats)
+                            def parse_mcp_response(response):
+                                response_text = response.text
+                                
+                                # Check if the response is in SSE format
+                                if response_text.startswith('event:') or '\ndata:' in response_text:
+                                    # Extract the JSON from the SSE format
+                                    data_lines = [line for line in response_text.split('\n') if line.startswith('data:')]
+                                    if data_lines:
+                                        json_str = data_lines[0][5:]  # Remove 'data:' prefix
+                                        return json.loads(json_str)
+                                    else:
+                                        return {"error": {"message": "Could not parse SSE response"}}
+                                else:
+                                    # Regular JSON response
+                                    return response.json()
+                            
+                            # Send the request to the MCP server
                             mcp_response = requests.post(
                                 mcp_url,
                                 json=mcp_request,
@@ -327,94 +344,58 @@ if user_input:
                                     'Content-Type': 'application/json',
                                     'Accept': 'application/json, text/event-stream'
                                 },
-                                verify=False  # Ignore SSL certificate validation
+                                verify=False  # For development only
                             )
                             
-                            # Parse the response - handle both JSON and SSE formats
-                            response_text = mcp_response.text
-                            st.sidebar.write(f"Raw MCP response: {response_text}")
+                            # Parse the response
+                            mcp_result = parse_mcp_response(mcp_response)
                             
-                            # Check if the response is in SSE format
-                            if response_text.startswith('event:') or '\ndata:' in response_text:
-                                # Extract the JSON from the SSE format
-                                data_lines = [line for line in response_text.split('\n') if line.startswith('data:')]
-                                if data_lines:
-                                    json_str = data_lines[0][5:]  # Remove 'data:' prefix
-                                    mcp_result = json.loads(json_str)
-                                else:
-                                    mcp_result = {"error": "Could not parse SSE response"}
-                            else:
-                                # Regular JSON response
-                                mcp_result = mcp_response.json()
+                            # Log the response for debugging
+                            st.sidebar.write(f"MCP Response (Status: {mcp_response.status_code}):")
                                 
                             st.sidebar.write(f"Parsed MCP response: {json.dumps(mcp_result, indent=2)}")
                             
-                            # Start with a completely fresh approach based on Amazon's examples
-                            # We'll follow the exact structure shown in their documentation
-                            
-                            # Extract the result content from the MCP response
+                            # Extract the result content from the MCP response in a clean, simple way
                             if "error" in mcp_result:
                                 st.sidebar.error(f"MCP server returned an error: {json.dumps(mcp_result['error'], indent=2)}")
-                                # Create an error message for the tool result
-                                error_message = mcp_result.get('error', {}).get('message', 'Unknown error')
-                                result_content = {"error": error_message}
+                                result_content = {"error": mcp_result.get('error', {}).get('message', 'Unknown error')}
                             elif "result" in mcp_result:
-                                # Extract the result from the MCP response for success case
                                 result_content = mcp_result["result"]
                             else:
-                                # Fallback for unexpected response format
                                 result_content = {"message": "Unexpected response format from MCP server"}
                             
-                            # Create a completely new conversation history
-                            # First message is the user's original request
-                            new_conversation = [
-                                {
-                                    "role": "user",
-                                    "content": "Show me all available products"
-                                }
+                            # Create a minimal conversation structure following Bedrock's requirements
+                            # We only need three messages: user request, assistant tool use, and tool result
+                            conversation = [
+                                # Original user message that started this interaction
+                                {"role": "user", "content": messages_for_model[-1]["content"]},
+                                
+                                # Assistant's tool use (no extra text, just the tool call)
+                                {"role": "assistant", "content": [
+                                    {"toolUse": {
+                                        "toolUseId": tool_use_id,
+                                        "name": tool_name,
+                                        "input": tool_input
+                                    }}
+                                ]},
+                                
+                                # Tool result as a user message
+                                {"role": "user", "content": [
+                                    {"toolResult": {
+                                        "toolUseId": tool_use_id,
+                                        "content": [{"json": result_content}]
+                                    }}
+                                ]}
                             ]
                             
-                            # Second message is the assistant's response with ONLY the tool use
-                            # No natural language text - just the pure tool use information
-                            new_conversation.append({
-                                "role": "assistant",
-                                "content": [
-                                    {
-                                        "toolUse": {
-                                            "toolUseId": tool_use_id,
-                                            "name": tool_name,
-                                            "input": tool_input
-                                        }
-                                    }
-                                ]
-                            })
+                            # Log the conversation for debugging
+                            st.sidebar.write("MCP Tool Result Conversation:")
+                            st.sidebar.json(conversation)
                             
-                            # Third message is the user's response with the tool result
-                            new_conversation.append({
-                                "role": "user",
-                                "content": [
-                                    {
-                                        "toolResult": {
-                                            "toolUseId": tool_use_id,
-                                            "content": [
-                                                {
-                                                    "json": result_content
-                                                }
-                                            ]
-                                        }
-                                    }
-                                ]
-                            })
-                            
-                            # Log the new conversation structure
-                            st.sidebar.write("Using Amazon's exact format for tool results:")
-                            st.sidebar.json(new_conversation)
-                                
-                            # Continue the conversation with the new conversation structure
-                            # that follows Amazon's exact format for tool results
+                            # Continue the conversation with the tool result
                             response = bedrock_runtime.converse(
                                 modelId=model_id,
-                                messages=new_conversation,
+                                messages=conversation,
                                 system=system_prompt,
                                 inferenceConfig={
                                     "maxTokens": max_tokens,

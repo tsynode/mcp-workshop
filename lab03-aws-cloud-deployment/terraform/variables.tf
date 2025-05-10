@@ -25,7 +25,7 @@ variable "availability_zones_count" {
 variable "lambda_runtime" {
   description = "Runtime for Lambda functions"
   type        = string
-  default     = "nodejs20.x"
+  default     = "nodejs22.x"
 }
 
 variable "lambda_timeout" {

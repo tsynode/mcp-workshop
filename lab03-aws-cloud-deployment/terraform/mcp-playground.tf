@@ -73,7 +73,6 @@ resource "aws_iam_role_policy" "ecs_task_role_policy" {
 resource "aws_ecr_repository" "mcp_playground_repository" {
   name                 = "mcp-playground"
   image_tag_mutability = "MUTABLE"
-  force_delete         = true
 
   image_scanning_configuration {
     scan_on_push = true

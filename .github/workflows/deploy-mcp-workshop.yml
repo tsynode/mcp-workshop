@@ -177,39 +177,31 @@ jobs:
           echo "Available Terraform outputs:"
           terraform output || echo "No outputs available yet"
           
-          # Extract endpoints from deployment_info with robust error handling
-          DEPLOYMENT_INFO=$(terraform output -raw deployment_info 2>/dev/null)
+          # Use direct Terraform outputs for the endpoints
+          PRODUCT_ENDPOINT=$(terraform output -raw product_server_endpoint 2>/dev/null || echo "")
+          ORDER_ENDPOINT=$(terraform output -raw order_server_endpoint 2>/dev/null || echo "")
+          MCP_PLAYGROUND_ALB=$(terraform output -raw mcp_playground_url 2>/dev/null || echo "pending-mcp-playground-alb")
           
-          # Get the MCP Playground ALB DNS name
-          if [[ -n "$DEPLOYMENT_INFO" ]]; then
-            MCP_PLAYGROUND_ALB=$(echo "$DEPLOYMENT_INFO" | grep -A 1 "# ECS/Fargate-based MCP Playground" | grep "MCP Playground:" | cut -d' ' -f3 | tr -d '\r\n' | xargs)
+          # Clean up the URLs to remove any trailing characters
+          PRODUCT_ENDPOINT=$(echo "$PRODUCT_ENDPOINT" | grep -o 'https://[^[:space:]]*' | head -1)
+          ORDER_ENDPOINT=$(echo "$ORDER_ENDPOINT" | grep -o 'https://[^[:space:]]*' | head -1)
+          MCP_PLAYGROUND_ALB=$(echo "$MCP_PLAYGROUND_ALB" | grep -o '[^[:space:]]*\.elb\.amazonaws\.com' | head -1)
+          
+          # Set the environment variables if they're not empty
+          if [[ -n "$PRODUCT_ENDPOINT" ]]; then
+            echo "Product Server Endpoint: $PRODUCT_ENDPOINT"
+            echo "PRODUCT_ENDPOINT=$PRODUCT_ENDPOINT" >> $GITHUB_ENV
           fi
           
-          # Set default if empty or not found
-          if [[ -z "$MCP_PLAYGROUND_ALB" ]]; then
-            MCP_PLAYGROUND_ALB="pending-mcp-playground-alb"
+          if [[ -n "$ORDER_ENDPOINT" ]]; then
+            echo "Order Server Endpoint: $ORDER_ENDPOINT"
+            echo "ORDER_ENDPOINT=$ORDER_ENDPOINT" >> $GITHUB_ENV
           fi
           
-          # Get the Product Server endpoint
-          if [[ -n "$DEPLOYMENT_INFO" ]]; then
-            PRODUCT_ENDPOINT=$(echo "$DEPLOYMENT_INFO" | grep -A 1 "# Lambda-based MCP Servers" | grep "Product Server:" | cut -d' ' -f3 | tr -d '\r\n' | xargs)
-            if [[ -n "$PRODUCT_ENDPOINT" ]]; then
-              echo "Product Server Endpoint: $PRODUCT_ENDPOINT"
-              echo "PRODUCT_ENDPOINT=$PRODUCT_ENDPOINT" >> $GITHUB_ENV
-            fi
+          if [[ -n "$MCP_PLAYGROUND_ALB" ]]; then
+            echo "MCP Playground ALB: $MCP_PLAYGROUND_ALB"
+            echo "MCP_PLAYGROUND_ALB=$MCP_PLAYGROUND_ALB" >> $GITHUB_ENV
           fi
-          
-          # Get the Order Server endpoint
-          if [[ -n "$DEPLOYMENT_INFO" ]]; then
-            ORDER_ENDPOINT=$(echo "$DEPLOYMENT_INFO" | grep -A 2 "# Lambda-based MCP Servers" | grep "Order Server:" | cut -d' ' -f3 | tr -d '\r\n' | xargs)
-            if [[ -n "$ORDER_ENDPOINT" ]]; then
-              echo "Order Server Endpoint: $ORDER_ENDPOINT"
-              echo "ORDER_ENDPOINT=$ORDER_ENDPOINT" >> $GITHUB_ENV
-            fi
-          fi
-          
-          # Set the MCP Playground ALB environment variable
-          echo "MCP_PLAYGROUND_ALB=$MCP_PLAYGROUND_ALB" >> $GITHUB_ENV
           
           # Display the endpoints for debugging
           echo "MCP Playground ALB: $MCP_PLAYGROUND_ALB"
@@ -229,8 +221,8 @@ jobs:
           echo "MCP Workshop has been successfully deployed to AWS."
           
           # Only show URLs if they're available (not pending)
-          if [[ "$MCP_PLAYGROUND_ALB" != pending* ]]; then
-            echo "\nAccess your MCP Playground at: $MCP_PLAYGROUND_ALB"
+          if [[ "$MCP_PLAYGROUND_ALB" != pending* && -n "$MCP_PLAYGROUND_ALB" ]]; then
+            echo "\nAccess your MCP Playground at: http://$MCP_PLAYGROUND_ALB"
           else
             echo "\nMCP Playground URL will be available soon. Check AWS Console for details."
           fi
@@ -291,14 +283,27 @@ jobs:
           echo ""
           echo "This approach gives you the flexibility to test both local and cloud-based clients."
           
-          # CloudWatch Logs section with properly escaped URLs
+          # Get the Lambda function names from Terraform outputs
+          PRODUCT_LAMBDA=$(terraform output -raw product_server_lambda_function_name 2>/dev/null || echo "")
+          ORDER_LAMBDA=$(terraform output -raw order_server_lambda_function_name 2>/dev/null || echo "")
+          
+          # CloudWatch Logs section with specific Lambda function links
           echo ""
           echo "\n📊 CloudWatch Logs:\n"
           echo "To view Lambda function logs, use these links:"
           
-          # Use direct URLs without variable substitution
-          echo "- Product Server Logs: https://console.aws.amazon.com/cloudwatch/home?region=us-west-2#logsV2:log-groups"
-          echo "- Order Server Logs: https://console.aws.amazon.com/cloudwatch/home?region=us-west-2#logsV2:log-groups"
+          # Create specific CloudWatch links for each Lambda function
+          if [[ -n "$PRODUCT_LAMBDA" ]]; then
+            echo "- Product Server Logs: https://console.aws.amazon.com/cloudwatch/home?region=${AWS_REGION}#logsV2:log-groups/log-group/aws/lambda/${PRODUCT_LAMBDA}"
+          else
+            echo "- Product Server Logs: https://console.aws.amazon.com/cloudwatch/home?region=${AWS_REGION}#logsV2:log-groups"
+          fi
+          
+          if [[ -n "$ORDER_LAMBDA" ]]; then
+            echo "- Order Server Logs: https://console.aws.amazon.com/cloudwatch/home?region=${AWS_REGION}#logsV2:log-groups/log-group/aws/lambda/${ORDER_LAMBDA}"
+          else
+            echo "- Order Server Logs: https://console.aws.amazon.com/cloudwatch/home?region=${AWS_REGION}#logsV2:log-groups"
+          fi
           
           echo ""
           echo "If you don't see log groups for the Lambda functions, it might indicate that:"

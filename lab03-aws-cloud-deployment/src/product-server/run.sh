@@ -11,4 +11,4 @@ echo "Current directory: $(pwd)"
 echo "Directory contents: $(ls -la)"
 
 # Execute the Node.js application
-exec node index.js
+node index.js

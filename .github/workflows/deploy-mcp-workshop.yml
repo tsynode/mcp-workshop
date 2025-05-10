@@ -88,16 +88,26 @@ jobs:
       - name: Set ECR Repository URLs
         working-directory: ${{ env.TF_WORKING_DIR }}
         run: |
-          # Extract ECR repository URLs
-          MCP_PLAYGROUND_ECR_REPO=$(terraform output -raw mcp_playground_repository_url 2>/dev/null || aws ecr describe-repositories --repository-names mcp-playground --query 'repositories[0].repositoryUri' --output text 2>/dev/null || echo "***.dkr.ecr.${{ github.event.inputs.aws_region }}.amazonaws.com/mcp-playground")
+          # Get account ID for constructing ECR repository URL
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          REGION=${{ github.event.inputs.aws_region }}
+          
+          # Construct ECR repository URL directly
+          MCP_PLAYGROUND_ECR_REPO="${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/mcp-playground"
+          
+          # Verify the repository exists
+          aws ecr describe-repositories --repository-names mcp-playground > /dev/null 2>&1 || {
+            echo "Creating ECR repository mcp-playground..."
+            aws ecr create-repository --repository-name mcp-playground
+          }
           
           # Set environment variables for later steps
-          echo "MCP_PLAYGROUND_ECR_REPO=$MCP_PLAYGROUND_ECR_REPO" >> $GITHUB_ENV
-          echo "ECR Repository: $MCP_PLAYGROUND_ECR_REPO"
+          echo "MCP_PLAYGROUND_ECR_REPO=${MCP_PLAYGROUND_ECR_REPO}" >> $GITHUB_ENV
+          echo "ECR Repository: ${MCP_PLAYGROUND_ECR_REPO}"
           
-          # Validate ECR repository URLs
+          # Validate ECR repository URL
           if [ -z "$MCP_PLAYGROUND_ECR_REPO" ]; then
-            echo "Error: Failed to get ECR repository URLs"
+            echo "Error: Failed to construct ECR repository URL"
             exit 1
           fi
 
@@ -211,16 +221,22 @@ jobs:
           echo "You can now use the MCP Playground to interact with the MCP servers."
           echo ""
           echo "Claude Desktop Configuration:"
+          
+          # Create a simple JSON configuration without complex escaping
+          PRODUCT_ENDPOINT="${{ env.PRODUCT_LAMBDA_ENDPOINT }}"
+          ORDER_ENDPOINT="${{ env.ORDER_LAMBDA_ENDPOINT }}"
+          
           echo '{
-            "mcpServers": {
+            "mcp_servers": {
               "aws-product-server": {
-                "url": "'"${{ env.PRODUCT_LAMBDA_ENDPOINT }}"'"
+                "url": "'"$PRODUCT_ENDPOINT"'"
               },
               "aws-order-server": {
-                "url": "'"${{ env.ORDER_LAMBDA_ENDPOINT }}"'"
+                "url": "'"$ORDER_ENDPOINT"'"
               }
             }
           }'
+          
           echo ""
           echo "MCP Workshop Implementation:"
           echo "This deployment uses:"

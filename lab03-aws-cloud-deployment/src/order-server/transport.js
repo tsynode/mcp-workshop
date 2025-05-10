@@ -40,13 +40,31 @@ const postRequestHandler = async (req, res) => {
         // Connect the server to the transport
         await server.connect(transport);
         
-        // Log the method being called if available
-        if (req.body && req.body.method) {
-            l.debug(`Processing method: ${req.body.method}`);
+        // Check if we need to transform the request to MCP format
+        let requestBody = req.body;
+        
+        // If the method is a direct tool name (not tools/call), transform it to proper MCP format
+        if (req.body && req.body.method && req.body.method !== 'tools/call' && req.body.method !== 'tools/list') {
+            const toolName = req.body.method;
+            l.debug(`Transforming direct method call '${toolName}' to MCP format`);
+            
+            requestBody = {
+                jsonrpc: req.body.jsonrpc || '2.0',
+                id: req.body.id,
+                method: 'tools/call',
+                params: {
+                    name: toolName,
+                    arguments: req.body.params || {}
+                }
+            };
+            
+            l.debug(`Transformed request: ${JSON.stringify(requestBody)}`);
+        } else {
+            l.debug(`Processing standard method: ${req.body.method}`);
         }
         
-        // Handle the request
-        await transport.handleRequest(req, res, req.body);
+        // Handle the request with potentially transformed body
+        await transport.handleRequest(req, res, requestBody);
     } catch (err) {
         l.error(`Error handling MCP request: ${err}`);
         l.error(`Error stack: ${err.stack}`);

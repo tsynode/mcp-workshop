@@ -155,7 +155,7 @@ module "product_alb" {
   source  = "terraform-aws-modules/alb/aws"
   version = "8.7.0"
 
-  name = "${local.name_prefix}-product-alb-${random_string.suffix.result}"
+  name = "prod-alb-${random_string.suffix.result}"
 
   load_balancer_type = "application"
 

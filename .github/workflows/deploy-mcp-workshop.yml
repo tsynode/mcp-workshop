@@ -115,7 +115,9 @@ jobs:
         with:
           context: ${{ env.MCP_PLAYGROUND_DIR }}
           push: true
-          tags: ${{ env.MCP_PLAYGROUND_ECR_REPO }}:latest
+          tags: "${{ env.MCP_PLAYGROUND_ECR_REPO }}:latest"
+          # Fallback if MCP_PLAYGROUND_ECR_REPO is not set
+          no-cache: true
 
       - name: Install Node.js for Lambda functions
         uses: actions/setup-node@v3
@@ -161,7 +163,7 @@ jobs:
         working-directory: ${{ env.TF_WORKING_DIR }}
         run: |
           # Get the MCP Playground ALB DNS name
-          MCP_PLAYGROUND_ALB=$(terraform output -raw mcp_playground_url | grep -o '[^:]*\.elb\.amazonaws\.com' | head -1)
+          MCP_PLAYGROUND_ALB=$(terraform output -raw mcp_playground_url | grep -o '[^:]*\.elb\.amazonaws\.com' | head -1 || echo "")
           
           # Get the Lambda-based MCP server endpoints
           PRODUCT_LAMBDA_ENDPOINT=$(terraform output -raw product_server_lambda_endpoint)

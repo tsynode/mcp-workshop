@@ -58,7 +58,7 @@ module "order_alb" {
   source  = "terraform-aws-modules/alb/aws"
   version = "8.7.0"
 
-  name = "${local.name_prefix}-order-alb-${random_string.suffix.result}"
+  name = "order-alb-${random_string.suffix.result}"
 
   load_balancer_type = "application"
 

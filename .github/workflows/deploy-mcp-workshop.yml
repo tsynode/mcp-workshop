@@ -217,17 +217,8 @@ jobs:
           fi
           
           echo "\nAPI Endpoints:"
-          if [[ "$PRODUCT_LAMBDA_ENDPOINT" != pending* ]]; then
-            echo "- Product Server: $PRODUCT_LAMBDA_ENDPOINT"
-          else
-            echo "- Product Server: https://2x82xc64vg.execute-api.us-west-2.amazonaws.com/product-server/mcp"
-          fi
-          
-          if [[ "$ORDER_LAMBDA_ENDPOINT" != pending* ]]; then
-            echo "- Order Server: $ORDER_LAMBDA_ENDPOINT"
-          else
-            echo "- Order Server: https://2x82xc64vg.execute-api.us-west-2.amazonaws.com/order-server/mcp"
-          fi
+          echo "- Product Server: $(terraform output -raw product_server_endpoint 2>/dev/null || echo 'https://example.com/product-server')"
+          echo "- Order Server: $(terraform output -raw order_server_endpoint 2>/dev/null || echo 'https://example.com/order-server')"
           
           echo "\nThese endpoints are configured in the MCP Playground application."
           echo "You can now use the MCP Playground to interact with the MCP servers."
@@ -252,10 +243,10 @@ jobs:
           echo "{"
           echo "  \"mcp_servers\": {"
           echo "    \"aws-product-server\": {"
-          echo "      \"url\": \"$PRODUCT_ENDPOINT\""
+          echo "      \"url\": \"$(terraform output -raw product_server_endpoint 2>/dev/null || echo 'https://example.com/product-server')\""
           echo "    },"
           echo "    \"aws-order-server\": {"
-          echo "      \"url\": \"$ORDER_ENDPOINT\""
+          echo "      \"url\": \"$(terraform output -raw order_server_endpoint 2>/dev/null || echo 'https://example.com/order-server')\""
           echo "    }"
           echo "  }"
           echo "}"

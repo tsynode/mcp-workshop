@@ -53,3 +53,30 @@ resource "aws_security_group" "lambda_sg" {
     Name = "${local.name_prefix}-lambda-sg"
   })
 }
+
+# Security group for ECS tasks
+resource "aws_security_group" "ecs_tasks_sg" {
+  name        = "${local.name_prefix}-ecs-tasks-sg-${random_string.suffix.result}"
+  description = "Security group for ECS tasks"
+  vpc_id      = module.vpc.vpc_id
+
+  ingress {
+    description     = "Allow traffic from ALB"
+    from_port       = 0
+    to_port         = 65535
+    protocol        = "tcp"
+    security_groups = [aws_security_group.alb_sg.id]
+  }
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+    description = "Allow all outbound traffic"
+  }
+
+  tags = merge(local.tags, {
+    Name = "${local.name_prefix}-ecs-tasks-sg"
+  })
+}

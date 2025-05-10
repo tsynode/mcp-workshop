@@ -1,5 +1,5 @@
-# GitHub Actions workflow for deploying MCP Workshop Labs to AWS with hybrid architecture
-name: Deploy MCP Workshop Lab to AWS (Hybrid Architecture)
+# GitHub Actions workflow for deploying MCP Workshop Labs to AWS
+name: Deploy MCP Workshop Lab to AWS
 
 on:
   workflow_dispatch:
@@ -210,9 +210,9 @@ jobs:
             }
           }'
           echo ""
-          echo "Hybrid Architecture Implementation:"
-          echo "This deployment uses a hybrid architecture with:"
+          echo "MCP Workshop Implementation:"
+          echo "This deployment uses:"
           echo "- Serverless MCP servers running on AWS Lambda"
-          echo "- Container-based Bedrock client running on ECS/Fargate"
+          echo "- Container-based MCP Playground running on ECS/Fargate"
           echo ""
-          echo "This approach gives you the flexibility to test both stateless and persistent implementations."
+          echo "This approach gives you the flexibility to test both local and cloud-based clients."

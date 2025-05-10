@@ -308,93 +308,83 @@ if user_input:
                                 
                             st.sidebar.write(f"Parsed MCP response: {json.dumps(mcp_result, indent=2)}")
                             
-                            # Check for error in response
+                            # Create a simplified conversation with just the necessary components
+                            # 1. The most recent user message
+                            user_message = st.session_state.messages[-1] if st.session_state.messages else {"role": "user", "content": ""}
+                            
+                            # Create a minimal conversation history
+                            simplified_messages = [
+                                {
+                                    "role": user_message["role"],
+                                    "content": user_message["content"]
+                                }
+                            ]
+                            
+                            # 2. The assistant's response with the tool use
+                            assistant_message = {
+                                "role": "assistant",
+                                "content": [
+                                    {
+                                        "toolUse": {
+                                            "toolUseId": tool_use_id,
+                                            "name": tool_name,
+                                            "input": tool_input
+                                        }
+                                    }
+                                ]
+                            }
+                            simplified_messages.append(assistant_message)
+                            
+                            # 3. Prepare the tool result based on success or error
                             if "error" in mcp_result:
                                 st.sidebar.error(f"MCP server returned an error: {json.dumps(mcp_result['error'], indent=2)}")
                                 # Create an error message for the tool result
                                 error_message = mcp_result.get('error', {}).get('message', 'Unknown error')
-                                result = {"error": error_message}
-                                # Continue with this result
-                            
-                            # Extract the result from the MCP response
-                            if "result" in mcp_result:
+                                tool_result = {
+                                    "toolUseId": tool_use_id,
+                                    "content": [{"json": {"error": error_message}}],
+                                    "status": "error"
+                                }
+                            elif "result" in mcp_result:
+                                # Extract the result from the MCP response for success case
                                 result = mcp_result["result"]
+                                tool_result = {
+                                    "toolUseId": tool_use_id,
+                                    "content": [{"json": result}]
+                                }
+                            else:
+                                # Fallback for unexpected response format
+                                tool_result = {
+                                    "toolUseId": tool_use_id,
+                                    "content": [{"json": {"message": "Unexpected response format from MCP server"}}],
+                                    "status": "error"
+                                }
                                 
-                                # Create the tool result
-                                # If there was an error, include status: error
-                                if "error" in result:
-                                    tool_result = {
-                                        "toolUseId": tool_use_id,
-                                        "content": [{"json": result}],
-                                        "status": "error"
+                            # Add the tool result message
+                            tool_result_message = {
+                                "role": "user",
+                                "content": [
+                                    {
+                                        "toolResult": tool_result
                                     }
-                                else:
-                                    tool_result = {
-                                        "toolUseId": tool_use_id,
-                                        "content": [{"json": result}]
-                                    }
+                                ]
+                            }
+                            simplified_messages.append(tool_result_message)
+                            
+                            st.sidebar.write("Simplified conversation with tool result:")
+                            st.sidebar.json(simplified_messages)
                                 
-                                # Create a tool result message following AWS documentation pattern
-                                # We need to ensure we're not sending more toolResult blocks than toolUse blocks
-                                # First, get the previous response which should contain the toolUse
-                                previous_response = response
-                                
-                                # Extract the toolUse from the previous response
-                                previous_output = previous_response.get('output', {})
-                                previous_message = previous_output.get('message', {})
-                                previous_contents = previous_message.get('content', [])
-                                
-                                # Find all toolUse blocks in the previous response
-                                tool_uses = []
-                                for content in previous_contents:
-                                    if 'toolUse' in content:
-                                        tool_uses.append(content.get('toolUse', {}))
-                                
-                                # Log the number of toolUse blocks found
-                                st.sidebar.write(f"Found {len(tool_uses)} toolUse blocks in previous response")
-                                
-                                # Only proceed if we have at least one toolUse
-                                if len(tool_uses) > 0:
-                                    # Create the message with the tool result
-                                    tool_result_message = {
-                                        "role": "user",
-                                        "content": [
-                                            {
-                                                "toolResult": tool_result
-                                            }
-                                        ]
-                                    }
-                                    
-                                    st.sidebar.write("Tool result message:")
-                                    st.sidebar.json(tool_result_message)
-                                    
-                                    # Create a new conversation history with the original messages plus the tool result
-                                    # We need to ensure we're not including any previous toolResult messages
-                                    filtered_messages = []
-                                    for msg in st.session_state.messages:
-                                        filtered_messages.append({
-                                            "role": msg["role"],
-                                            "content": msg["content"]
-                                        })
-                                    
-                                    # Add the tool result message
-                                    filtered_messages.append(tool_result_message)
-                                    
-                                    # Continue the conversation with the updated messages
-                                    response = bedrock_runtime.converse(
-                                        modelId=model_id,
-                                        messages=filtered_messages,
-                                        system=system_prompt,
-                                        inferenceConfig={
-                                            "maxTokens": max_tokens,
-                                            "temperature": temperature
-                                        },
-                                        toolConfig=tool_config
-                                    )
-                                else:
-                                    st.sidebar.error("No toolUse blocks found in previous response, cannot send toolResult")
-                                    # Just use the previous response
-                                    response = previous_response                      
+                            # Continue the conversation with the updated messages
+                            response = bedrock_runtime.converse(
+                                modelId=model_id,
+                                messages=simplified_messages,
+                                system=system_prompt,
+                                inferenceConfig={
+                                    "maxTokens": max_tokens,
+                                    "temperature": temperature
+                                },
+                                toolConfig=tool_config
+                            )                      
                             st.sidebar.write("Final Response:")
                             st.sidebar.json(response)
                         except Exception as e:

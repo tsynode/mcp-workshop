@@ -20,6 +20,34 @@ const postRequestHandler = async (req, res) => {
         l.debug(`Request headers: ${JSON.stringify(req.headers)}`);
         l.debug(`Request body: ${JSON.stringify(req.body)}`);
         
+        // Check if this is a direct method call (not using tools/call format)
+        if (req.body && req.body.method && req.body.method !== 'tools/call' && 
+            req.body.method !== 'resources/list' && req.body.method !== 'resources/retrieve') {
+            
+            l.debug(`Detected direct method call: ${req.body.method}`);
+            
+            // Transform the request to use the tools/call format
+            const toolName = req.body.method;
+            const toolParams = req.body.params || {};
+            const requestId = req.body.id;
+            
+            // Create a properly formatted MCP request
+            const mcpRequest = {
+                jsonrpc: '2.0',
+                id: requestId,
+                method: 'tools/call',
+                params: {
+                    name: toolName,
+                    arguments: toolParams
+                }
+            };
+            
+            l.debug(`Transformed request to: ${JSON.stringify(mcpRequest)}`);
+            
+            // Replace the original request body with the transformed one
+            req.body = mcpRequest;
+        }
+        
         // Create new instances of MCP Server and Transport for each incoming request
         const newMcpServer = mcpServer.create();
         

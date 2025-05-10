@@ -19,19 +19,19 @@ This lab implements a dual-client architecture where the same MCP servers can be
 
 ```mermaid
 graph TD
-    A["Claude Desktop\n(Local Client)"] -->|HTTPS| B[API Gateway]
+    A[Claude Desktop] -->|HTTPS| B[API Gateway]
     B -->|Invoke| C[Lambda: Product Server]
     B -->|Invoke| D[Lambda: Order Server]
     
-    E[Amazon Bedrock] -->|API| G["ECS/Fargate: MCP Playground\n(Cloud Client)"]
+    E[Web Browser] -->|HTTP| G[MCP Playground on ECS/Fargate]
     G -->|HTTPS| C
     G -->|HTTPS| D
     
     subgraph "AWS Cloud"
         B
         subgraph "Lambda Functions"
-            C["Product Server\n(Same as Lab 02)"]
-            D["Order Server\n(Same as Lab 02)"]
+            C[Product Server from Lab 02]
+            D[Order Server from Lab 02]
         end
         subgraph "Container Services"
             G

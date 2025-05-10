@@ -214,7 +214,7 @@ jobs:
           
           # Only show URLs if they're available (not pending)
           if [[ "$MCP_PLAYGROUND_ALB" != pending* ]]; then
-            echo "\nAccess your MCP Playground at: http://$MCP_PLAYGROUND_ALB"
+            echo "\nAccess your MCP Playground at: [http://$MCP_PLAYGROUND_ALB](http://$MCP_PLAYGROUND_ALB)"
           else
             echo "\nMCP Playground URL will be available soon. Check AWS Console for details."
           fi
@@ -259,3 +259,11 @@ jobs:
           echo "- Container-based MCP Playground running on ECS/Fargate"
           echo ""
           echo "This approach gives you the flexibility to test both local and cloud-based clients."
+          
+          # Extract suffix from Terraform outputs
+          SUFFIX=$(terraform output -raw product_server_lambda_function_name 2>/dev/null | sed 's/mcp-workshop-product-server-//' || echo "")
+          
+          echo "\n📊 CloudWatch Logs:\n"
+          echo "To view Lambda function logs, use these links:"
+          echo "- Product Server Logs: [AWS CloudWatch Logs](https://console.aws.amazon.com/cloudwatch/home?region=${{ github.event.inputs.aws_region }}#logsV2:log-groups/log-group/%2Faws%2Flambda%2Fmcp-workshop-product-server-${SUFFIX})"
+          echo "- Order Server Logs: [AWS CloudWatch Logs](https://console.aws.amazon.com/cloudwatch/home?region=${{ github.event.inputs.aws_region }}#logsV2:log-groups/log-group/%2Faws%2Flambda%2Fmcp-workshop-order-server-${SUFFIX})"

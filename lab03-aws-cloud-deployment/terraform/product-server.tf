@@ -2,6 +2,32 @@
 # Product Server-based MCP Servers Configuration
 ###############################################
 
+# IAM Role for Product and Order Server Lambda functions
+resource "aws_iam_role" "product_server_role" {
+  name = "${local.name_prefix}-product-server-role-${random_string.suffix.result}"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Action = "sts:AssumeRole"
+        Effect = "Allow"
+        Principal = {
+          Service = "lambda.amazonaws.com"
+        }
+      }
+    ]
+  })
+
+  tags = local.tags
+}
+
+# Attach the AWS Lambda basic execution role policy
+resource "aws_iam_role_policy_attachment" "product_server_basic" {
+  role       = aws_iam_role.product_server_role.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+}
+
 # Create a Product Server function for the Product MCP Server
 resource "aws_lambda_function" "product_server" {
   function_name = "${local.name_prefix}-product-server-${random_string.suffix.result}"
@@ -122,6 +148,50 @@ resource "aws_lambda_permission" "order_server_permission" {
   function_name = aws_lambda_function.order_server.function_name
   principal     = "apigateway.amazonaws.com"
   source_arn    = "${aws_apigatewayv2_api.mcp_api.execution_arn}/*/*/order-server/*"
+}
+
+# ALB for Product Server (if needed for direct access)
+module "product_alb" {
+  source  = "terraform-aws-modules/alb/aws"
+  version = "8.7.0"
+
+  name = "${local.name_prefix}-product-alb-${random_string.suffix.result}"
+
+  load_balancer_type = "application"
+
+  vpc_id          = module.vpc.vpc_id
+  subnets         = module.vpc.public_subnets
+  security_groups = [aws_security_group.alb_sg.id]
+
+  target_groups = [
+    {
+      name_prefix      = "prod-"
+      backend_protocol = "HTTP"
+      backend_port     = 80
+      target_type      = "lambda"
+      health_check = {
+        enabled             = true
+        interval            = 30
+        path                = "/health"
+        port                = "traffic-port"
+        healthy_threshold   = 3
+        unhealthy_threshold = 3
+        timeout             = 6
+        protocol            = "HTTP"
+        matcher             = "200-399"
+      }
+    }
+  ]
+
+  http_tcp_listeners = [
+    {
+      port               = 80
+      protocol           = "HTTP"
+      target_group_index = 0
+    }
+  ]
+
+  tags = local.tags
 }
 
 # Outputs for the Lambda functions are defined in main.tf

@@ -67,8 +67,8 @@ Region: ${var.aws_region}
 Product Server: ${aws_apigatewayv2_api.mcp_api.api_endpoint}/product-server/mcp
 Order Server: ${aws_apigatewayv2_api.mcp_api.api_endpoint}/order-server/mcp
 
-# ECS/Fargate-based Bedrock Client
-Bedrock Client: http://${module.bedrock_client_alb.lb_dns_name}
+# ECS/Fargate-based MCP Playground
+MCP Playground: http://${module.mcp_playground_alb.lb_dns_name}
 
 Claude Desktop Configuration:
 {

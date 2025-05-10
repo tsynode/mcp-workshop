@@ -230,6 +230,23 @@ The Terraform configuration creates:
 - IAM roles and policies
 - CloudWatch logs integration
 
+### Terraform Organization
+
+The Terraform configuration follows a component-based organization pattern, which is considered a best practice for maintainable infrastructure as code:
+
+- **Component-Based Files**: Each logical component has its own file containing all resources related to that component
+  - `product-server.tf`: Lambda function, IAM roles, API Gateway integration, and ALB for the Product Server
+  - `order-server.tf`: Lambda function, IAM roles, API Gateway integration, and ALB for the Order Server
+  - `mcp-playground.tf`: ECS cluster, task definition, service, ECR repository, IAM roles, and ALB for the MCP Playground
+
+- **Shared Infrastructure Files**:
+  - `main.tf`: Provider configuration, random string generation, and API Gateway resources
+  - `vpc.tf`: VPC and networking components
+  - `variables.tf`: Input variables for the configuration
+  - `security-groups.tf`: Shared security groups used by multiple components
+
+This organization makes it easier to understand the relationships between resources within each component and simplifies maintenance as the infrastructure grows.
+
 ### Security Note
 
 This lab implements basic security with HTTPS through API Gateway but does not include authentication or authorization. For production environments, you should implement proper authentication, authorization, and API key management.

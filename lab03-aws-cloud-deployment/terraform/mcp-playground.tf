@@ -1,5 +1,76 @@
-# ECR Repository for MCP Playground
-resource "aws_ecr_repository" "mcp_playground" {
+# MCP Playground Component
+
+# IAM roles and policies for ECS tasks
+
+# ECS Task Execution Role
+resource "aws_iam_role" "ecs_task_execution_role" {
+  name = "${local.name_prefix}-ecs-execution-role-${random_string.suffix.result}"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Action = "sts:AssumeRole"
+        Effect = "Allow"
+        Principal = {
+          Service = "ecs-tasks.amazonaws.com"
+        }
+      }
+    ]
+  })
+
+  tags = local.tags
+}
+
+# Attach the ECS Task Execution Role policy
+resource "aws_iam_role_policy_attachment" "ecs_task_execution_role_policy" {
+  role       = aws_iam_role.ecs_task_execution_role.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
+}
+
+# ECS Task Role (for container permissions)
+resource "aws_iam_role" "ecs_task_role" {
+  name = "${local.name_prefix}-ecs-task-role-${random_string.suffix.result}"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Action = "sts:AssumeRole"
+        Effect = "Allow"
+        Principal = {
+          Service = "ecs-tasks.amazonaws.com"
+        }
+      }
+    ]
+  })
+
+  tags = local.tags
+}
+
+# Attach policies to the ECS Task Role as needed
+resource "aws_iam_role_policy" "ecs_task_role_policy" {
+  name = "${local.name_prefix}-ecs-task-policy-${random_string.suffix.result}"
+  role = aws_iam_role.ecs_task_role.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Action = [
+          "logs:CreateLogGroup",
+          "logs:CreateLogStream",
+          "logs:PutLogEvents"
+        ],
+        Effect   = "Allow",
+        Resource = "*"
+      }
+    ]
+  })
+}
+
+# ECR Repository for MCP Playground (Bedrock Client)
+resource "aws_ecr_repository" "mcp_playground_repository" {
   name                 = "mcp-playground"
   image_tag_mutability = "MUTABLE"
 
@@ -7,9 +78,32 @@ resource "aws_ecr_repository" "mcp_playground" {
     scan_on_push = true
   }
 
-  tags = merge(local.tags, {
-    Name = "${local.name_prefix}-mcp-playground-ecr-repo"
-  })
+  tags = local.tags
+}
+
+# ECS Cluster for MCP Playground
+resource "aws_ecs_cluster" "main" {
+  name = "${local.name_prefix}-cluster-${random_string.suffix.result}"
+
+  setting {
+    name  = "containerInsights"
+    value = "enabled"
+  }
+
+  tags = local.tags
+}
+
+# ECS Cluster Capacity Providers
+resource "aws_ecs_cluster_capacity_providers" "main" {
+  cluster_name = aws_ecs_cluster.main.name
+
+  capacity_providers = ["FARGATE", "FARGATE_SPOT"]
+
+  default_capacity_provider_strategy {
+    base              = 1
+    weight            = 100
+    capacity_provider = "FARGATE"
+  }
 }
 
 # CloudWatch Log Group for MCP Playground
@@ -32,17 +126,15 @@ resource "aws_ecs_task_definition" "mcp_playground" {
   execution_role_arn       = aws_iam_role.ecs_task_execution_role.arn
   task_role_arn            = aws_iam_role.ecs_task_role.arn
   
-  # This ensures this resource is only created after the ECR repositories
+  # This ensures this resource is only created after the ECR repository
   depends_on = [
-    aws_ecr_repository.product_repository,
-    aws_ecr_repository.order_repository,
-    aws_ecr_repository.mcp_playground
+    aws_ecr_repository.mcp_playground_repository
   ]
 
   container_definitions = jsonencode([
     {
       name      = "mcp-playground"
-      image     = "${aws_ecr_repository.mcp_playground.repository_url}:latest"
+      image     = "${aws_ecr_repository.mcp_playground_repository.repository_url}:latest"
       essential = true
       
       portMappings = [
@@ -56,11 +148,15 @@ resource "aws_ecs_task_definition" "mcp_playground" {
       environment = [
         {
           name  = "PRODUCT_MCP_SERVER_URL"
-          value = "https://${module.product_alb.lb_dns_name}/mcp"
+          value = "${aws_apigatewayv2_api.mcp_api.api_endpoint}/product-server/mcp"
         },
         {
           name  = "ORDER_MCP_SERVER_URL"
-          value = "https://${module.order_alb.lb_dns_name}/mcp"
+          value = "${aws_apigatewayv2_api.mcp_api.api_endpoint}/order-server/mcp"
+        },
+        {
+          name  = "BEDROCK_MODEL_ID"
+          value = "anthropic.claude-3-haiku-20240307-v1:0"
         }
       ]
       
@@ -113,11 +209,11 @@ resource "aws_ecs_service" "mcp_playground" {
   desired_count   = 1
   launch_type     = "FARGATE"
   
-  # This ensures this resource is only created after the ECR repositories, task definition, and load balancer
+  # This ensures this resource is only created after the ECR repository, task definition, and load balancer
   depends_on = [
-    aws_ecr_repository.mcp_playground,
+    aws_ecr_repository.mcp_playground_repository,
     aws_ecs_task_definition.mcp_playground,
-    aws_lb_listener.mcp_playground
+    module.mcp_playground_alb
   ]
 
   network_configuration {
@@ -127,7 +223,7 @@ resource "aws_ecs_service" "mcp_playground" {
   }
 
   load_balancer {
-    target_group_arn = aws_lb_target_group.mcp_playground.arn
+    target_group_arn = module.mcp_playground_alb.target_group_arns[0]
     container_name   = "mcp-playground"
     container_port   = 8501
   }
@@ -140,57 +236,50 @@ resource "aws_ecs_service" "mcp_playground" {
 }
 
 # Application Load Balancer for MCP Playground
-resource "aws_lb" "mcp_playground" {
-  name               = "mcp-playground-alb-${random_string.suffix.result}"
-  internal           = false
+module "mcp_playground_alb" {
+  source  = "terraform-aws-modules/alb/aws"
+  version = "8.7.0"
+
+  name = "${local.name_prefix}-mcp-playground-alb-${random_string.suffix.result}"
+
   load_balancer_type = "application"
-  security_groups    = [aws_security_group.alb_sg.id]
-  subnets            = module.vpc.public_subnets
 
-  tags = merge(local.tags, {
-    Name = "${local.name_prefix}-mcp-playground-alb"
-  })
+  vpc_id          = module.vpc.vpc_id
+  subnets         = module.vpc.public_subnets
+  security_groups = [aws_security_group.alb_sg.id]
+
+  target_groups = [
+    {
+      name_prefix      = "mcp-"
+      backend_protocol = "HTTP"
+      backend_port     = 8501
+      target_type      = "ip"
+      health_check = {
+        enabled             = true
+        interval            = 30
+        path                = "/"
+        port                = "traffic-port"
+        healthy_threshold   = 3
+        unhealthy_threshold = 3
+        timeout             = 6
+        protocol            = "HTTP"
+        matcher             = "200-399"
+      }
+    }
+  ]
+
+  http_tcp_listeners = [
+    {
+      port               = 80
+      protocol           = "HTTP"
+      target_group_index = 0
+    }
+  ]
+
+  tags = local.tags
 }
 
-# Target Group for MCP Playground
-resource "aws_lb_target_group" "mcp_playground" {
-  name        = "mcp-playground-tg-${random_string.suffix.result}"
-  port        = 8501
-  protocol    = "HTTP"
-  vpc_id      = module.vpc.vpc_id
-  target_type = "ip"
-
-  health_check {
-    path                = "/"
-    port                = 8501
-    protocol            = "HTTP"
-    interval            = 30
-    timeout             = 5
-    healthy_threshold   = 3
-    unhealthy_threshold = 3
-    matcher             = "200"
-  }
-  
-  tags = merge(local.tags, {
-    Name = "${local.name_prefix}-mcp-playground-target-group"
-  })
-}
-
-# Listener for MCP Playground ALB
-resource "aws_lb_listener" "mcp_playground" {
-  load_balancer_arn = aws_lb.mcp_playground.arn
-  port              = 80
-  protocol          = "HTTP"
-
-  default_action {
-    type             = "forward"
-    target_group_arn = aws_lb_target_group.mcp_playground.arn
-  }
-
-  tags = merge(local.tags, {
-    Name = "${local.name_prefix}-mcp-playground-listener"
-  })
-}
+# Note: Target Group and Listener are now managed by the ALB module
 
 # IAM Policy for Bedrock Access
 resource "aws_iam_policy" "bedrock_access" {
@@ -221,11 +310,11 @@ resource "aws_iam_role_policy_attachment" "bedrock_policy_attachment" {
 # Output the MCP Playground URL
 output "mcp_playground_url" {
   description = "URL for the MCP Playground"
-  value       = "http://${aws_lb.mcp_playground.dns_name}"
+  value       = "http://${module.mcp_playground_alb.lb_dns_name}"
 }
 
 # Output the MCP Playground ECR Repository URL
 output "mcp_playground_repository_url" {
   description = "URL of the MCP Playground ECR repository"
-  value       = aws_ecr_repository.mcp_playground.repository_url
+  value       = aws_ecr_repository.mcp_playground_repository.repository_url
 }

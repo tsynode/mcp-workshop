@@ -31,7 +31,7 @@ env:
   TF_WORKING_DIR: ${{ format('./lab0{0}-aws-cloud-deployment/terraform', inputs.lab_number) }}
   PRODUCT_SERVER_DIR: ${{ format('./lab0{0}-aws-cloud-deployment/src/product-server', inputs.lab_number) }}
   ORDER_SERVER_DIR: ${{ format('./lab0{0}-aws-cloud-deployment/src/order-server', inputs.lab_number) }}
-  BEDROCK_CLIENT_DIR: ${{ format('./lab0{0}-aws-cloud-deployment/src/bedrock-client', inputs.lab_number) }}
+  MCP_PLAYGROUND_DIR: ${{ format('./lab0{0}-aws-cloud-deployment/src/mcp-playground', inputs.lab_number) }}
 
 jobs:
   build-and-deploy:
@@ -83,25 +83,25 @@ jobs:
         working-directory: ${{ env.TF_WORKING_DIR }}
         run: |
           # Create only the ECR repositories first
-          terraform apply -auto-approve -var="aws_region=${{ github.event.inputs.aws_region }}" -var="github_repository=${{ github.repository }}" -target=aws_ecr_repository.bedrock_client
+          terraform apply -auto-approve -var="aws_region=${{ github.event.inputs.aws_region }}" -var="github_repository=${{ github.repository }}" -target=aws_ecr_repository.mcp_playground_repository
 
       - name: Get ECR Repository URLs
         working-directory: ${{ env.TF_WORKING_DIR }}
         run: |
-          # Get the ECR repository URL for the Bedrock client
+          # Get the ECR repository URL for the MCP Playground
           ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
           REGION=${{ github.event.inputs.aws_region }}
           
           # Set environment variables for ECR repository URLs
-          export BEDROCK_CLIENT_ECR_REPO=${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/bedrock-client
+          export MCP_PLAYGROUND_ECR_REPO=${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/mcp-playground
           
-          echo "BEDROCK_CLIENT_ECR_REPO=${BEDROCK_CLIENT_ECR_REPO}" >> $GITHUB_ENV
+          echo "MCP_PLAYGROUND_ECR_REPO=${MCP_PLAYGROUND_ECR_REPO}" >> $GITHUB_ENV
           
-          echo "Bedrock Client ECR URL: ${BEDROCK_CLIENT_ECR_REPO}"
+          echo "MCP Playground ECR URL: ${MCP_PLAYGROUND_ECR_REPO}"
 
       - name: Validate ECR Repository URLs
         run: |
-          if [ -z "$BEDROCK_CLIENT_ECR_REPO" ]; then
+          if [ -z "$MCP_PLAYGROUND_ECR_REPO" ]; then
             echo "Error: Failed to get ECR repository URLs"
             exit 1
           fi
@@ -110,12 +110,12 @@ jobs:
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v1
 
-      - name: Build and push Bedrock Client image
+      - name: Build and Push MCP Playground Docker Image
         uses: docker/build-push-action@v4
         with:
-          context: ${{ env.BEDROCK_CLIENT_DIR }}
+          context: ${{ env.MCP_PLAYGROUND_DIR }}
           push: true
-          tags: ${{ env.BEDROCK_CLIENT_ECR_REPO }}:latest
+          tags: ${{ env.MCP_PLAYGROUND_ECR_REPO }}:latest
 
       - name: Install Node.js for Lambda functions
         uses: actions/setup-node@v3
@@ -145,53 +145,53 @@ jobs:
           # List services in the cluster to verify they exist
           aws ecs list-services --cluster mcp-workshop-cluster --region $AWS_REGION
           
-          # Try to update the Bedrock client service
-          echo "Updating bedrock-client service..."
-          if aws ecs describe-services --cluster mcp-workshop-cluster --services bedrock-client --region $AWS_REGION | grep -q "ACTIVE"; then
-            aws ecs update-service --cluster mcp-workshop-cluster --service bedrock-client --force-new-deployment --region $AWS_REGION
-            echo "Bedrock client service update initiated"
+          # Try to update the MCP Playground service
+          echo "Updating mcp-playground service..."
+          if aws ecs describe-services --cluster mcp-workshop-cluster --services mcp-playground --region $AWS_REGION | grep -q "ACTIVE"; then
+            aws ecs update-service --cluster mcp-workshop-cluster --service mcp-playground --force-new-deployment --region $AWS_REGION
+            echo "MCP Playground service update initiated"
           else
-            echo "Bedrock client service not found or not active, skipping update"
+            echo "MCP Playground service not found or not active, skipping update"
           fi
           
           echo "Waiting for services to stabilize..."
-          aws ecs wait services-stable --cluster mcp-workshop-cluster --services bedrock-client --region $AWS_REGION || echo "Warning: Not all services stabilized, but continuing workflow"
+          aws ecs wait services-stable --cluster mcp-workshop-cluster --services mcp-playground --region $AWS_REGION || echo "Warning: Not all services stabilized, but continuing workflow"
 
       - name: Get Endpoints
         working-directory: ${{ env.TF_WORKING_DIR }}
         run: |
-          # Get the Bedrock client ALB DNS name
-          BEDROCK_CLIENT_ALB=$(terraform output -raw bedrock_client_url | grep -o '[^:]*\.elb\.amazonaws\.com' | head -1)
+          # Get the MCP Playground ALB DNS name
+          MCP_PLAYGROUND_ALB=$(terraform output -raw mcp_playground_url | grep -o '[^:]*\.elb\.amazonaws\.com' | head -1)
           
           # Get the Lambda-based MCP server endpoints
           PRODUCT_LAMBDA_ENDPOINT=$(terraform output -raw product_server_lambda_endpoint)
           ORDER_LAMBDA_ENDPOINT=$(terraform output -raw order_server_lambda_endpoint)
           
           # Verify we have valid endpoints
-          if [[ -z "$BEDROCK_CLIENT_ALB" || -z "$PRODUCT_LAMBDA_ENDPOINT" || -z "$ORDER_LAMBDA_ENDPOINT" ]]; then
+          if [[ -z "$MCP_PLAYGROUND_ALB" || -z "$PRODUCT_LAMBDA_ENDPOINT" || -z "$ORDER_LAMBDA_ENDPOINT" ]]; then
             echo "Error: Failed to extract valid endpoints"
             exit 1
           fi
           
-          echo "BEDROCK_CLIENT_ALB=$BEDROCK_CLIENT_ALB" >> $GITHUB_ENV
+          echo "MCP_PLAYGROUND_ALB=$MCP_PLAYGROUND_ALB" >> $GITHUB_ENV
           echo "PRODUCT_LAMBDA_ENDPOINT=$PRODUCT_LAMBDA_ENDPOINT" >> $GITHUB_ENV
           echo "ORDER_LAMBDA_ENDPOINT=$ORDER_LAMBDA_ENDPOINT" >> $GITHUB_ENV
           
-          echo "Bedrock Client ALB: $BEDROCK_CLIENT_ALB"
+          echo "MCP Playground ALB: $MCP_PLAYGROUND_ALB"
           echo "Product Lambda Endpoint: $PRODUCT_LAMBDA_ENDPOINT"
           echo "Order Lambda Endpoint: $ORDER_LAMBDA_ENDPOINT"
 
       - name: Output Deployment Information
         run: |
           # Make sure we have the endpoints available in this step
-          BEDROCK_CLIENT_ALB_URL="${BEDROCK_CLIENT_ALB:-${{ env.BEDROCK_CLIENT_ALB }}}"
+          MCP_PLAYGROUND_ALB_URL="${MCP_PLAYGROUND_ALB:-${{ env.MCP_PLAYGROUND_ALB }}}"
           PRODUCT_LAMBDA_ENDPOINT="${PRODUCT_LAMBDA_ENDPOINT:-${{ env.PRODUCT_LAMBDA_ENDPOINT }}}"
           ORDER_LAMBDA_ENDPOINT="${ORDER_LAMBDA_ENDPOINT:-${{ env.ORDER_LAMBDA_ENDPOINT }}}"
           
           echo "✅ Deployment Complete!"
           echo ""
           echo "============================================"
-          echo "🔗 BEDROCK CLIENT URL: http://${BEDROCK_CLIENT_ALB_URL}"
+          echo "🔗 MCP PLAYGROUND URL: http://${MCP_PLAYGROUND_ALB_URL}"
           echo "============================================"
           echo ""
           echo "MCP Server Endpoints (Lambda-based):"

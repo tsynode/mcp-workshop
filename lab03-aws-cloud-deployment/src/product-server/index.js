@@ -43,15 +43,13 @@ app.use(async (req, res, next) => {
 // Bootstrap the MCP transport
 await transport.bootstrap(app);
 
-// Start the server when not running in Lambda
-if (!process.env.AWS_LAMBDA_FUNCTION_NAME) {
-  app.listen(PORT, () => {
-    l.debug(metadata.all);
-    l.debug(`Product MCP Server running on port ${PORT}`);
-    l.debug(`Health check endpoint: http://localhost:${PORT}/health`);
-    l.debug(`MCP endpoint: http://localhost:${PORT}/mcp`);
-  });
-}
+// Always start the server, even in Lambda mode
+const server = app.listen(PORT, () => {
+  l.debug(metadata.all);
+  l.debug(`Product MCP Server running on port ${PORT}`);
+  l.debug(`Health check endpoint: http://localhost:${PORT}/health`);
+  l.debug(`MCP endpoint: http://localhost:${PORT}/mcp`);
+});
 
 // For Lambda, export the app
 export default app;

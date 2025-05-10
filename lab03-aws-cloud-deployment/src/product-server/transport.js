@@ -20,64 +20,32 @@ const postRequestHandler = async (req, res) => {
         l.debug(`Request headers: ${JSON.stringify(req.headers)}`);
         l.debug(`Request body: ${JSON.stringify(req.body)}`);
         
-        // Check if this is a direct method call (not using tools/call format)
-        if (req.body && req.body.method && req.body.method !== 'tools/call' && 
-            req.body.method !== 'resources/list' && req.body.method !== 'resources/retrieve') {
-            
-            l.debug(`Detected direct method call: ${req.body.method}`);
-            
-            // Transform the request to use the tools/call format
-            const toolName = req.body.method;
-            const toolParams = req.body.params || {};
-            const requestId = req.body.id;
-            
-            // Create a properly formatted MCP request
-            const mcpRequest = {
-                jsonrpc: '2.0',
-                id: requestId,
-                method: 'tools/call',
-                params: {
-                    name: toolName,
-                    arguments: toolParams
-                }
-            };
-            
-            l.debug(`Transformed request to: ${JSON.stringify(mcpRequest)}`);
-            
-            // Replace the original request body with the transformed one
-            req.body = mcpRequest;
-        }
-        
         // Create new instances of MCP Server and Transport for each incoming request
-        const newMcpServer = mcpServer.create();
+        const server = mcpServer.create();
+        l.debug(`Created MCP server for product-server`);
         
-        // Add onRequest handler to log the parsed request
-        newMcpServer.onRequest((request) => {
-            l.debug(`MCP Server received parsed request: ${JSON.stringify(request)}`);
-        });
-        
+        // Create a transport for this request
         const transport = new StreamableHTTPServerTransport({
-            // This is a stateless MCP server, so we don't need to keep track of sessions
-            sessionIdGenerator: undefined,
-
-            // Using JSON format for responses to match the reference implementation
-            enableJsonResponse: true,
-            
-            // Add debug logging for transport
-            debug: true
+            sessionIdGenerator: undefined,  // Stateless server
+            enableJsonResponse: true        // Use JSON format for responses
         });
-
+        
+        // Set up cleanup when the request is complete
         res.on("close", () => {
             l.debug("Request processing complete");
             transport.close();
-            newMcpServer.close();
+            server.close();
         });
         
-        await newMcpServer.connect(transport);
+        // Connect the server to the transport
+        await server.connect(transport);
         
-        // Log the available tools before handling the request
-        l.debug(`Available tools: ${JSON.stringify(Object.keys(newMcpServer.getTools()))}`);
+        // Log the method being called if available
+        if (req.body && req.body.method) {
+            l.debug(`Processing method: ${req.body.method}`);
+        }
         
+        // Handle the request
         await transport.handleRequest(req, res, req.body);
     } catch (err) {
         l.error(`Error handling MCP request: ${err}`);

@@ -23,7 +23,26 @@ const create = () => {
   });
 
   // Define the create-order tool
-  mcpServer.tool("create-order", async ({ productId, quantity }) => {
+  mcpServer.tool("create-order", async (params = {}) => {
+    // Add comprehensive debugging
+    l.debug(`Received create-order request with params: ${JSON.stringify(params)}`);
+    
+    // Destructure with defaults to handle empty params
+    const { productId, quantity } = params || {};
+    
+    if (!productId || !quantity) {
+      l.debug('Missing required parameters: productId or quantity');
+      return {
+        content: [{
+          type: "text",
+          text: JSON.stringify({
+            error: "Missing required parameters",
+            message: "productId and quantity are required"
+          }, null, 2)
+        }]
+      };
+    }
+    
     l.debug(`Creating order for product ID: ${productId}, quantity: ${quantity}`);
     
     const orderId = generateOrderId();
@@ -39,6 +58,8 @@ const create = () => {
     
     orders.push(order);
     
+    l.debug(`Order created with ID: ${orderId}`);
+    
     return {
       content: [{
         type: "text",
@@ -51,13 +72,20 @@ const create = () => {
   });
 
   // Define the check-order-status tool
-  mcpServer.tool("check-order-status", async ({ orderId }) => {
+  mcpServer.tool("check-order-status", async (params = {}) => {
+    // Add comprehensive debugging
+    l.debug(`Received check-order-status request with params: ${JSON.stringify(params)}`);
+    
+    // Destructure with defaults to handle empty params
+    const { orderId } = params || {};
+    
     l.debug(`Checking status for order ID: ${orderId || 'all'}`);
     
     if (orderId) {
       const order = orders.find(o => o.orderId === orderId);
       
       if (!order) {
+        l.debug(`Order with ID ${orderId} not found`);
         return {
           content: [{
             type: "text",
@@ -66,6 +94,7 @@ const create = () => {
         };
       }
       
+      l.debug(`Found order: ${JSON.stringify(order)}`);
       return {
         content: [{
           type: "text",
@@ -74,6 +103,7 @@ const create = () => {
       };
     } else {
       // Return all orders if no orderId is provided
+      l.debug(`Returning all orders: ${orders.length} found`);
       return {
         content: [{
           type: "text",

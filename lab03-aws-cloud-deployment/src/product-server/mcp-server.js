@@ -87,7 +87,13 @@ const create = () => {
   });
 
   // Define the search-products tool
-  mcpServer.tool("search-products", async ({ category, maxPrice, inStockOnly }) => {
+  mcpServer.tool("search-products", async (params = {}) => {
+    // Add comprehensive debugging
+    l.debug(`Received search-products request with params: ${JSON.stringify(params)}`);
+    
+    // Destructure with defaults to handle empty params
+    const { category, maxPrice, inStockOnly } = params || {};
+    
     l.debug(`Searching products with filters: category=${category}, maxPrice=${maxPrice}, inStockOnly=${inStockOnly}`);
     
     let filteredProducts = [...products];
@@ -103,6 +109,8 @@ const create = () => {
     if (inStockOnly) {
       filteredProducts = filteredProducts.filter(p => p.inStock);
     }
+    
+    l.debug(`Returning ${filteredProducts.length} products`);
     
     return {
       content: [{

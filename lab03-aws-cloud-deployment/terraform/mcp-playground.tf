@@ -108,7 +108,7 @@ resource "aws_ecs_cluster_capacity_providers" "main" {
 
 # CloudWatch Log Group for MCP Playground
 resource "aws_cloudwatch_log_group" "mcp_playground" {
-  name              = "/ecs/mcp-playground"
+  name              = "/ecs/mcp-playground-${random_string.suffix.result}"
   retention_in_days = 30
 
   tags = merge(local.tags, {
@@ -283,7 +283,7 @@ module "mcp_playground_alb" {
 
 # IAM Policy for Bedrock Access
 resource "aws_iam_policy" "bedrock_access" {
-  name        = "bedrock-access-policy"
+  name        = "bedrock-access-policy-${random_string.suffix.result}"
   description = "Policy for accessing Amazon Bedrock"
 
   policy = jsonencode({

@@ -124,17 +124,7 @@ resource "aws_lambda_permission" "order_server_permission" {
   source_arn    = "${aws_apigatewayv2_api.mcp_api.execution_arn}/*/*/order-server/*"
 }
 
-# Add outputs for the Product Server-based MCP servers
-output "product_server_lambda_function_name" {
-  value = aws_lambda_function.product_server.function_name
-}
-
-output "order_server_lambda_function_name" {
-  value = aws_lambda_function.order_server.function_name
-}
-
-# API Gateway endpoint is now defined in main.tf
-
-# Product server endpoint is now defined in main.tf
-
-# Order server endpoint is now defined in main.tf
+# Outputs for the Lambda functions are defined in main.tf
+# API Gateway endpoint is defined in main.tf
+# Product server endpoint is defined in main.tf
+# Order server endpoint is defined in main.tf

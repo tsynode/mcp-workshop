@@ -5,15 +5,8 @@ terraform {
       version = "~> 5.0"
     }
   }
-  
-  # Uncomment this block to use Terraform Cloud for state management
-  # backend "s3" {
-  #   bucket = "your-terraform-state-bucket"
-  #   key    = "lab03/terraform.tfstate"
-  #   region = "us-west-2"
-  # }
 }
-
+  
 provider "aws" {
   region = var.aws_region
 }
@@ -35,49 +28,81 @@ locals {
   }
 }
 
-# Get availability zones for the region
-data "aws_availability_zones" "available" {
-  state = "available"
+# All outputs and resource references are now defined in their respective component files:
+# - product-server.tf
+# - order-server.tf
+# - mcp-playground.tf
+
+# Create API Gateway for the MCP servers
+resource "aws_apigatewayv2_api" "mcp_api" {
+  name          = "${local.name_prefix}-mcp-api-${random_string.suffix.result}"
+  protocol_type = "HTTP"
+  cors_configuration {
+    allow_origins = ["*"]
+    allow_methods = ["POST", "GET", "OPTIONS"]
+    allow_headers = ["content-type", "accept", "authorization"]
+    max_age       = 300
+  }
 }
 
-# Output the deployment info
+# Create API Gateway stage
+resource "aws_apigatewayv2_stage" "mcp_api_stage" {
+  api_id      = aws_apigatewayv2_api.mcp_api.id
+  name        = "dev"
+  auto_deploy = true
+
+  default_route_settings {
+    throttling_burst_limit = 100
+    throttling_rate_limit  = 50
+  }
+}
+
 output "deployment_info" {
   value = <<EOT
 MCP Workshop Lab 03 Deployment Information
 ------------------------------------------
 Region: ${var.aws_region}
-VPC ID: ${module.vpc.vpc_id}
-Product Server ALB: https://${module.product_alb.lb_dns_name}/mcp
-Order Server ALB: https://${module.order_alb.lb_dns_name}/mcp
+
+# Lambda-based MCP Servers
+Product Server: ${aws_apigatewayv2_api.mcp_api.api_endpoint}/product-server/mcp
+Order Server: ${aws_apigatewayv2_api.mcp_api.api_endpoint}/order-server/mcp
+
+# ECS/Fargate-based Bedrock Client
+Bedrock Client: http://${module.bedrock_client_alb.lb_dns_name}
 
 Claude Desktop Configuration:
 {
   "mcpServers": {
     "aws-product-server": {
-      "url": "https://${module.product_alb.lb_dns_name}/mcp"
+      "url": "${aws_apigatewayv2_api.mcp_api.api_endpoint}/product-server/mcp"
     },
     "aws-order-server": {
-      "url": "https://${module.order_alb.lb_dns_name}/mcp"
+      "url": "${aws_apigatewayv2_api.mcp_api.api_endpoint}/order-server/mcp"
     }
   }
 }
 EOT
 }
 
-output "product_repository_url" {
-  value = aws_ecr_repository.product_repository.repository_url
+# Output the Lambda function names
+output "product_server_lambda_function_name" {
+  value = aws_lambda_function.product_server.function_name
 }
 
-output "order_repository_url" {
-  value = aws_ecr_repository.order_repository.repository_url
+output "order_server_lambda_function_name" {
+  value = aws_lambda_function.order_server.function_name
 }
 
-output "product_alb_dns" {
-  value = module.product_alb.lb_dns_name
+# Output the API Gateway endpoint
+output "mcp_api_endpoint" {
+  value = aws_apigatewayv2_api.mcp_api.api_endpoint
 }
 
-output "order_alb_dns" {
-  value = module.order_alb.lb_dns_name
+# Output the specific MCP server endpoints
+output "product_server_endpoint" {
+  value = "${aws_apigatewayv2_api.mcp_api.api_endpoint}/product-server/mcp"
 }
 
-# Bedrock client repository URL output is defined in bedrock-client.tf
+output "order_server_endpoint" {
+  value = "${aws_apigatewayv2_api.mcp_api.api_endpoint}/order-server/mcp"
+}

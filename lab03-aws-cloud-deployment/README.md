@@ -1,57 +1,62 @@
-# Lab 03: AWS Cloud Deployment with Fargate
+# Lab 03: Cloud Deployment of MCP Servers and Clients
 
-This lab demonstrates how to deploy MCP servers to AWS using Fargate, enabling cloud-based AI tool integration with Claude. We'll take the retail MCP servers from Lab 02 and deploy them to the cloud with proper infrastructure.
+This lab demonstrates how to deploy MCP servers and clients to the AWS Cloud. We'll take the same MCP servers from Lab 02 and deploy them as serverless functions on AWS Lambda, while also providing two different MCP client options: Claude Desktop (running locally) and an Amazon Bedrock-based MCP Playground (running in the cloud).
 
 ## Learning Objectives
 
 By the end of this lab, you will:
-- Deploy MCP servers to AWS Fargate for production-ready cloud hosting
-- Implement Streamable HTTP transport for MCP (protocol version 2025-03-26)
-- Set up Application Load Balancers with HTTPS for secure communication
+- Deploy MCP servers from Lab 02 to AWS Lambda for serverless cloud hosting
+- Set up API Gateway for secure HTTP endpoints to your MCP servers
+- Connect Claude Desktop directly to your cloud-hosted MCP servers
+- Deploy a Bedrock-based MCP Playground to ECS/Fargate as an alternative client
+- Compare two different MCP client approaches: local (Claude Desktop) vs. cloud (Bedrock)
 - Use Terraform for infrastructure as code
-- Configure GitHub Actions for automated deployment
-- Connect Claude Desktop directly to cloud-hosted MCP servers
 - Understand cloud architecture considerations for AI tool integration
 
 ## Architecture Overview
 
+This lab implements a dual-client architecture where the same MCP servers can be accessed by both local and cloud-based clients:
+
 ```mermaid
 graph TD
-    A[Claude Desktop] -->|HTTPS| B[Application Load Balancer]
-    B -->|Private Subnet| C[Fargate: Product Server]
-    B -->|Private Subnet| D[Fargate: Order Server]
+    A[Claude Desktop<br/>(Local Client)] -->|HTTPS| B[API Gateway]
+    B -->|Invoke| C[Lambda: Product Server]
+    B -->|Invoke| D[Lambda: Order Server]
+    
+    E[Amazon Bedrock] -->|API| G[ECS/Fargate: MCP Playground<br/>(Cloud Client)]
+    G -->|HTTPS| C
+    G -->|HTTPS| D
     
     subgraph "AWS Cloud"
         B
-        subgraph "ECS Cluster"
-            C
-            D
+        subgraph "Lambda Functions"
+            C[Product Server<br/>(Same as Lab 02)]
+            D[Order Server<br/>(Same as Lab 02)]
         end
-        E[ECR Repositories]
+        subgraph "Container Services"
+            G
+        end
         F[CloudWatch Logs]
     end
     
     C --> F
     D --> F
-    E -->|Images| C
-    E -->|Images| D
-    
-    subgraph "GitHub Actions"
-        G[Build & Push Images]
-        H[Deploy Terraform]
-    end
-    
-    G -->|Push| E
-    H -->|Create/Update| B
+    G --> F
 ```
+
+### Key Components
+
+1. **MCP Servers (AWS Lambda)**: The same Product and Order servers from Lab 02, now deployed as serverless functions
+2. **API Gateway**: Provides secure HTTPS endpoints to access the MCP servers
+3. **Two Client Options**:
+   - **Claude Desktop** (local): Connect directly to cloud MCP servers from your computer
+   - **Bedrock-based MCP Playground** (cloud): An alternative client running on ECS/Fargate
 
 ## Prerequisites
 
 - Completed Lab 01 and Lab 02
 - AWS Account with appropriate permissions
 - GitHub account (for GitHub Actions)
-- AWS CLI configured locally
-- Terraform installed (optional, as GitHub Actions will run it)
 - Claude Desktop installed and configured
 
 ## Deployment Steps
@@ -76,27 +81,23 @@ You'll need to add AWS credentials to your GitHub repository secrets:
    - `AWS_SECRET_ACCESS_KEY`: Your AWS secret key
    - `AWS_REGION`: Your preferred AWS region (e.g., us-west-2)
 
-For detailed instructions, see [Setup GitHub Secrets](./docs/setup-github-secrets.md).
-
 ### 3. Run the GitHub Actions Workflow
 
-> **Note**: GitHub Actions workflows must be in the root `.github/workflows/` directory to be recognized. The workflow files in this lab's directory are for reference, but copies have been placed in the root directory of the repository.
-
 1. Go to the "Actions" tab in your GitHub repository
-2. Select the "Deploy Lab 3 to AWS" workflow
+2. Select the "Deploy MCP Workshop Lab to AWS" workflow
 3. Click "Run workflow"
 4. Select your AWS region from the dropdown
 5. Click "Run workflow" again
 
 The workflow will:
-- Build Docker images for both servers
-- Push them to Amazon ECR
+- Build and push the MCP Playground Docker image to ECR
+- Package the serverless MCP servers for Lambda deployment
 - Deploy the infrastructure using Terraform
-- Output the ALB endpoints for your MCP servers
+- Output the endpoints for both the MCP Playground and serverless MCP servers
 
 ### 4. Configure Claude Desktop
 
-Once deployment is complete, you'll need to update your Claude Desktop configuration to use the cloud-hosted MCP servers:
+Once deployment is complete, you'll need to update your Claude Desktop configuration to use the serverless MCP servers:
 
 1. Open your Claude Desktop configuration file:
    ```bash
@@ -106,15 +107,15 @@ Once deployment is complete, you'll need to update your Claude Desktop configura
    notepad %APPDATA%\Claude\claude_desktop_config.json
    ```
 
-2. Add the following configuration (replace the URLs with your actual ALB endpoints):
+2. Add the following configuration (replace the URLs with your actual API Gateway endpoints from the Terraform output):
    ```json
    {
      "mcpServers": {
        "aws-product-server": {
-         "url": "https://your-product-alb-endpoint.region.elb.amazonaws.com/mcp"
+         "url": "https://your-api-id.execute-api.region.amazonaws.com/dev/product-server/mcp"
        },
        "aws-order-server": {
-         "url": "https://your-order-alb-endpoint.region.elb.amazonaws.com/mcp"
+         "url": "https://your-api-id.execute-api.region.amazonaws.com/dev/order-server/mcp"
        }
      }
    }
@@ -178,68 +179,110 @@ Here's what the MCP Inspector looks like when successfully connected to an MCP s
 
 - If you encounter SSL certificate errors, use the `NODE_TLS_REJECT_UNAUTHORIZED=0` flag
 - Check CloudWatch logs for detailed request information
-- Compare successful requests from the MCP Inspector with requests from Claude or other clients
+- Compare successful requests from the MCP Inspector with requests from Claude or other MCP playgrounds
 - Verify network connectivity and security group rules allow traffic to your MCP servers
 
 ## Implementation Details
 
-### MCP Servers
+### MCP Servers: From Local to Cloud
 
-The MCP servers in this lab have been adapted from Lab 02 with several key changes:
+In this lab, we take the same Product and Order MCP servers from Lab 02 and deploy them to AWS Lambda with these adaptations:
 
-1. **Streamable HTTP Transport**: Instead of stdio, we're using HTTP with Server-Sent Events (SSE) support
-2. **Protocol Version**: Updated to 2025-03-26 which supports streaming responses
-3. **Health Check Endpoint**: Required for AWS load balancers
-4. **CORS Headers**: Allowing Claude Desktop to connect directly
-5. **Persistent Storage**: Using EFS (optional) for order data persistence
+1. **Same Core Functionality**: The servers provide identical tools and capabilities as in Lab 02
+2. **Serverless Architecture**: Deployed as Lambda functions for automatic scaling and pay-per-use pricing
+3. **Stateless Design**: Each request creates a new MCP server instance, ideal for serverless environments
+4. **API Gateway Integration**: Secure HTTPS endpoints with CORS support
+
+### Dual Client Architecture
+
+This lab demonstrates two different ways to interact with your MCP servers:
+
+#### Option 1: Claude Desktop (Local Client)
+
+- Run Claude Desktop on your local machine
+- Configure it to connect directly to your cloud-hosted MCP servers
+- Ideal for development and testing with direct control over the client
+
+#### Option 2: Bedrock-based MCP Playground (Cloud Client)
+
+- A containerized web application running on ECS/Fargate
+- Connects to Amazon Bedrock (using Claude 3 Haiku model)
+- Forwards tool requests to your MCP servers
+- Demonstrates a fully cloud-based AI assistant with MCP integration
+
+### Why Two Client Options?
+
+This dual-client approach allows you to:
+
+1. **Compare Implementation Approaches**: Local vs. cloud-based clients
+2. **Understand Different Integration Patterns**: Direct connection vs. proxy architecture
+3. **Experience Different User Interfaces**: Claude Desktop vs. web-based interface
+4. **Explore Cloud Provider Options**: Anthropic Claude Desktop vs. Amazon Bedrock
 
 ### Infrastructure Components
 
 The Terraform configuration creates:
 
-- VPC with public and private subnets
-- Application Load Balancers with HTTPS
-- ECS Cluster with Fargate services
-- ECR repositories for Docker images
+- API Gateway HTTP API endpoints for MCP servers
+- Lambda functions for the MCP servers
+- ECS/Fargate service for the MCP Playground
+- VPC networking for secure communication
 - IAM roles and policies
-- Security groups
 - CloudWatch logs integration
-
-For detailed architecture information, see [Architecture Documentation](./docs/architecture.md).
 
 ### Security Note
 
-This lab implements basic security with HTTPS but does not include authentication or authorization. These security aspects will be covered in Lab 05. For production environments, you should implement proper authentication, authorization, and API key management.
+This lab implements basic security with HTTPS through API Gateway but does not include authentication or authorization. For production environments, you should implement proper authentication, authorization, and API key management.
 
 ## Cleanup
 
 To avoid ongoing AWS charges, clean up your resources when you're done:
 
-```bash
-# Option 1: Using the GitHub Actions workflow
-1. Go to the "Actions" tab in your GitHub repository
-2. Select the "Destroy Lab 3 AWS Resources" workflow
-3. Click "Run workflow"
+- Use the "Destroy MCP Workshop Lab on AWS" workflow in GitHub Actions. This will automatically and safely remove all deployed resources.
 
-# Option 2: Using Terraform locally
-cd terraform
-terraform destroy
-```
+1. Go to the "Actions" tab in your GitHub repository.
+2. Select the "Destroy MCP Workshop Lab on AWS" workflow.
+3. Click "Run workflow" and confirm.
+
+> Do **not** run `terraform destroy` locally unless you have a specific reason and understand the implications.
 
 ## Real-World Application
 
 🌍 **Cloud Deployment Context**:
-- This architecture pattern is used by production AI tool providers
-- Fargate provides scalable, managed container hosting without server management
-- ALB with HTTPS ensures secure communication between Claude and your tools
+- This serverless architecture pattern is used by production AI tool providers
+- Lambda provides scalable, cost-effective compute with pay-per-use pricing
+- API Gateway ensures secure communication between Claude and your tools
 - The same pattern works for any AI service that supports the MCP standard
 - For production, you would add authentication, monitoring, and alerting
 
+## Trying Both Client Options
+
+### Using Claude Desktop (Local Client)
+
+After deploying the infrastructure:
+
+1. Configure Claude Desktop to connect to your cloud MCP servers (see instructions in the Deployment Steps section)
+2. Open a new chat in Claude Desktop
+3. Enable the MCP tools from the "Search and tools" menu
+4. Try commands like "Get details for product p003" or "Create an order for 2 units of product p002"
+
+### Using Bedrock-based MCP Playground (Cloud Client)
+
+1. Access the Bedrock client web interface using the URL provided in the deployment output
+2. The interface is pre-configured to connect to your MCP servers
+3. Try the same commands as above to see how the cloud-based client handles the requests
+4. Notice how the Bedrock client acts as a proxy between Amazon Bedrock and your MCP servers
+
+### Comparing the Approaches
+
+As you try both options, consider:
+- Which provides a better user experience?
+- What are the trade-offs in terms of setup complexity?
+- How might each approach fit into different enterprise scenarios?
+
 ## What's Next?
 
-This lab demonstrated deploying MCP servers to AWS. Next steps:
-
-- **Lab 04**: Connect to production AI services like Amazon Bedrock
+- **Lab 04**: Explore more advanced MCP integrations
 - **Lab 05**: Add security with OAuth, API keys, and proper access controls
 
-**Key Insight**: By deploying MCP servers to the cloud, you enable AI assistants to access your organization's tools and data securely from anywhere, without requiring local infrastructure.
+**Key Insight**: This lab demonstrates the flexibility of the MCP standard - the same MCP servers can be accessed by both local and cloud-based clients, giving you multiple options for integrating AI assistants with your organization's tools and data.

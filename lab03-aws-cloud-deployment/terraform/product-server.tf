@@ -50,7 +50,7 @@ resource "aws_lambda_function" "product_server" {
     variables = {
       AWS_LAMBDA_EXEC_WRAPPER = "/opt/bootstrap"
       AWS_LWA_PORT = "8080"
-      PORT = "8000"
+      PORT = "8080"
     }
   }
 
@@ -79,7 +79,7 @@ resource "aws_lambda_function" "order_server" {
     variables = {
       AWS_LAMBDA_EXEC_WRAPPER = "/opt/bootstrap"
       AWS_LWA_PORT = "8080"
-      PORT = "8000"
+      PORT = "8080"
     }
   }
 

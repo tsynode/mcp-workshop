@@ -7,7 +7,8 @@ import transport from './transport.js';
 await metadata.init();
 
 const l = log4js.getLogger();
-const PORT = process.env.PORT || 3000;
+// Always use AWS_LWA_PORT (8080) for Lambda Web Adapter
+const PORT = 8080;
 
 // This function is using Lambda Web Adapter to run express.js on Lambda
 // https://github.com/awslabs/aws-lambda-web-adapter

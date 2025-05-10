@@ -32,6 +32,9 @@ env:
   PRODUCT_SERVER_DIR: ${{ format('./lab0{0}-aws-cloud-deployment/src/product-server', inputs.lab_number) }}
   ORDER_SERVER_DIR: ${{ format('./lab0{0}-aws-cloud-deployment/src/order-server', inputs.lab_number) }}
   MCP_PLAYGROUND_DIR: ${{ format('./lab0{0}-aws-cloud-deployment/src/mcp-playground', inputs.lab_number) }}
+  AWS_REGION: ${{ inputs.aws_region }}
+  AWS_API_ID: 'mcp-api'
+  API_STAGE: 'prod'
 
 jobs:
   build-and-deploy:
@@ -179,13 +182,17 @@ jobs:
           terraform output -raw mcp_playground_url 2>/dev/null > mcp_playground_url.txt || echo "pending-mcp-playground-alb" > mcp_playground_url.txt
           MCP_PLAYGROUND_ALB=$(cat mcp_playground_url.txt | grep -o '[^:]*\.elb\.amazonaws\.com' | head -1 || echo "pending-mcp-playground-alb")
           
-          # Get the Lambda-based MCP server endpoints via API Gateway with fallbacks
-          PRODUCT_LAMBDA_ENDPOINT=$(terraform output -raw product_server_endpoint 2>/dev/null || echo "pending-product-endpoint")
-          ORDER_LAMBDA_ENDPOINT=$(terraform output -raw order_server_endpoint 2>/dev/null || echo "pending-order-endpoint")
+          # Try to get the API Gateway ID from Terraform output
+          API_ID=$(terraform output -raw api_gateway_id 2>/dev/null || echo "")
+          if [[ -n "$API_ID" ]]; then
+            echo "API Gateway ID: $API_ID"
+            echo "AWS_API_ID=$API_ID" >> $GITHUB_ENV
+          fi
           
-          # Clean up any debug output or extra information
-          PRODUCT_LAMBDA_ENDPOINT=$(echo "$PRODUCT_LAMBDA_ENDPOINT" | head -1 | tr -d '\n')
-          ORDER_LAMBDA_ENDPOINT=$(echo "$ORDER_LAMBDA_ENDPOINT" | head -1 | tr -d '\n')
+          # Get the API stage from Terraform output
+          API_STAGE=$(terraform output -raw api_gateway_stage 2>/dev/null || echo "prod")
+          echo "API Stage: $API_STAGE"
+          echo "API_STAGE=$API_STAGE" >> $GITHUB_ENV
           
           # Set the environment variables even if they're pending
           # This allows the workflow to continue and we'll update the actual values later
@@ -217,8 +224,8 @@ jobs:
           fi
           
           echo "\nAPI Endpoints:"
-          echo "- Product Server: $(terraform output -raw product_server_endpoint 2>/dev/null || echo 'https://example.com/product-server')"
-          echo "- Order Server: $(terraform output -raw order_server_endpoint 2>/dev/null || echo 'https://example.com/order-server')"
+          echo "- Product Server: https://${AWS_API_ID}.execute-api.${AWS_REGION}.amazonaws.com/${API_STAGE}/mcp"
+          echo "- Order Server: https://${AWS_API_ID}.execute-api.${AWS_REGION}.amazonaws.com/${API_STAGE}/order-mcp"
           
           echo "\nThese endpoints are configured in the MCP Playground application."
           echo "You can now use the MCP Playground to interact with the MCP servers."
@@ -243,10 +250,10 @@ jobs:
           echo "{"
           echo "  \"mcp_servers\": {"
           echo "    \"aws-product-server\": {"
-          echo "      \"url\": \"$(terraform output -raw product_server_endpoint 2>/dev/null || echo 'https://example.com/product-server')\""
+          echo "      \"url\": \"https://${AWS_API_ID}.execute-api.${AWS_REGION}.amazonaws.com/${API_STAGE}/mcp\""
           echo "    },"
           echo "    \"aws-order-server\": {"
-          echo "      \"url\": \"$(terraform output -raw order_server_endpoint 2>/dev/null || echo 'https://example.com/order-server')\""
+          echo "      \"url\": \"https://${AWS_API_ID}.execute-api.${AWS_REGION}.amazonaws.com/${API_STAGE}/order-mcp\""
           echo "    }"
           echo "  }"
           echo "}"

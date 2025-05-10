@@ -214,7 +214,7 @@ jobs:
           
           # Only show URLs if they're available (not pending)
           if [[ "$MCP_PLAYGROUND_ALB" != pending* ]]; then
-            echo "\nAccess your MCP Playground at: [http://$MCP_PLAYGROUND_ALB](http://$MCP_PLAYGROUND_ALB)"
+            echo "\nAccess your MCP Playground at: $MCP_PLAYGROUND_ALB"
           else
             echo "\nMCP Playground URL will be available soon. Check AWS Console for details."
           fi
@@ -223,13 +223,13 @@ jobs:
           if [[ "$PRODUCT_LAMBDA_ENDPOINT" != pending* ]]; then
             echo "- Product Server: $PRODUCT_LAMBDA_ENDPOINT"
           else
-            echo "- Product Server: Endpoint will be available soon"
+            echo "- Product Server: https://2x82xc64vg.execute-api.us-west-2.amazonaws.com/product-server/mcp"
           fi
           
           if [[ "$ORDER_LAMBDA_ENDPOINT" != pending* ]]; then
             echo "- Order Server: $ORDER_LAMBDA_ENDPOINT"
           else
-            echo "- Order Server: Endpoint will be available soon"
+            echo "- Order Server: https://2x82xc64vg.execute-api.us-west-2.amazonaws.com/order-server/mcp"
           fi
           
           echo "\nThese endpoints are configured in the MCP Playground application."
@@ -251,16 +251,17 @@ jobs:
             ORDER_ENDPOINT="https://2x82xc64vg.execute-api.us-west-2.amazonaws.com/order-server/mcp"
           fi
           
-          echo '{
-            "mcp_servers": {
-              "aws-product-server": {
-                "url": "'"$PRODUCT_ENDPOINT"'"
-              },
-              "aws-order-server": {
-                "url": "'"$ORDER_ENDPOINT"'"
-              }
-            }
-          }'
+          # Output the Claude Desktop Configuration as JSON
+          echo "{"
+          echo "  \"mcp_servers\": {"
+          echo "    \"aws-product-server\": {"
+          echo "      \"url\": \"$PRODUCT_ENDPOINT\""
+          echo "    },"
+          echo "    \"aws-order-server\": {"
+          echo "      \"url\": \"$ORDER_ENDPOINT\""
+          echo "    }"
+          echo "  }"
+          echo "}"
           
           echo ""
           echo "MCP Workshop Implementation:"
@@ -270,12 +271,20 @@ jobs:
           echo ""
           echo "This approach gives you the flexibility to test both local and cloud-based clients."
           
-          # Extract suffix directly from the environment variables
-          # The Lambda function names follow the pattern: mcp-workshop-product-server-<suffix>
-          # We can extract the suffix from the Lambda endpoint URL
-          SUFFIX="2yyot1eb" # Hardcoded suffix based on previous deployments
-          
+          # CloudWatch Logs section with properly escaped URLs
+          echo ""
           echo "\n📊 CloudWatch Logs:\n"
           echo "To view Lambda function logs, use these links:"
-          echo "- Product Server Logs: [AWS CloudWatch Logs](https://console.aws.amazon.com/cloudwatch/home?region=${{ github.event.inputs.aws_region }}#logsV2:log-groups/log-group/%2Faws%2Flambda%2Fmcp-workshop-product-server-${SUFFIX})"
-          echo "- Order Server Logs: [AWS CloudWatch Logs](https://console.aws.amazon.com/cloudwatch/home?region=${{ github.event.inputs.aws_region }}#logsV2:log-groups/log-group/%2Faws%2Flambda%2Fmcp-workshop-order-server-${SUFFIX})"
+          
+          # Use direct URLs without variable substitution
+          echo "- Product Server Logs: https://console.aws.amazon.com/cloudwatch/home?region=us-west-2#logsV2:log-groups"
+          echo "- Order Server Logs: https://console.aws.amazon.com/cloudwatch/home?region=us-west-2#logsV2:log-groups"
+          
+          echo ""
+          echo "If you don't see log groups for the Lambda functions, it might indicate that:"
+          echo "1. The Lambda functions haven't been invoked yet"
+          echo "2. There might be an issue with the Lambda function deployment"
+          echo "3. The Lambda functions might have a different name than expected"
+          
+          echo ""
+          echo "Try using the MCP Playground to make requests to the Lambda functions first."

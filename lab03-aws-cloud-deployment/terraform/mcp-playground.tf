@@ -310,7 +310,7 @@ resource "aws_iam_role_policy_attachment" "bedrock_policy_attachment" {
 # Output the MCP Playground URL
 output "mcp_playground_url" {
   description = "URL for the MCP Playground"
-  value       = "http://${module.mcp_playground_alb.lb_dns_name}"
+  value       = module.mcp_playground_alb.lb_dns_name
 }
 
 # Output the MCP Playground ECR Repository URL

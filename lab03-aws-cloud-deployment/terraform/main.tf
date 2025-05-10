@@ -80,7 +80,7 @@ Product Server: https://${aws_api_gateway_rest_api.mcp_api.id}.execute-api.${var
 Order Server: https://${aws_api_gateway_rest_api.mcp_api.id}.execute-api.${var.aws_region}.amazonaws.com/${aws_api_gateway_stage.mcp_api_stage.stage_name}/order-mcp
 
 # ECS/Fargate-based MCP Playground
-MCP Playground: http://${module.mcp_playground_alb.lb_dns_name}
+MCP Playground: ${module.mcp_playground_alb.lb_dns_name}
 
 Claude Desktop Configuration:
 {

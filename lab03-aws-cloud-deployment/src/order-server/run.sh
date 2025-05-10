@@ -10,5 +10,5 @@ echo "NODE_PATH=$NODE_PATH"
 echo "Current directory: $(pwd)"
 echo "Directory contents: $(ls -la)"
 
-# Execute the Node.js application
-node index.js
+# Execute the Node.js application with the Lambda Web Adapter
+exec node index.js

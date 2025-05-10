@@ -180,11 +180,8 @@ jobs:
           MCP_PLAYGROUND_ALB=$(cat mcp_playground_url.txt | grep -o '[^:]*\.elb\.amazonaws\.com' | head -1 || echo "pending-mcp-playground-alb")
           
           # Get the Lambda-based MCP server endpoints via API Gateway with fallbacks
-          terraform output -raw product_server_endpoint 2>/dev/null > product_endpoint.txt || echo "pending-product-endpoint" > product_endpoint.txt
-          PRODUCT_LAMBDA_ENDPOINT=$(cat product_endpoint.txt | grep -v "debug" || echo "pending-product-endpoint")
-          
-          terraform output -raw order_server_endpoint 2>/dev/null > order_endpoint.txt || echo "pending-order-endpoint" > order_endpoint.txt
-          ORDER_LAMBDA_ENDPOINT=$(cat order_endpoint.txt | grep -v "debug" || echo "pending-order-endpoint")
+          PRODUCT_LAMBDA_ENDPOINT=$(terraform output -raw product_server_endpoint 2>/dev/null || echo "pending-product-endpoint")
+          ORDER_LAMBDA_ENDPOINT=$(terraform output -raw order_server_endpoint 2>/dev/null || echo "pending-order-endpoint")
           
           # Clean up any debug output or extra information
           PRODUCT_LAMBDA_ENDPOINT=$(echo "$PRODUCT_LAMBDA_ENDPOINT" | head -1 | tr -d '\n')

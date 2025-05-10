@@ -68,9 +68,51 @@ jobs:
             -backend-config="key=lab0${{ github.event.inputs.lab_number }}/terraform.tfstate" \
             -backend-config="region=${{ github.event.inputs.aws_region }}"
 
+      - name: Clean ECR Repositories
+        run: |
+          echo "Cleaning ECR repositories before destroying resources..."
+          # List all repositories
+          REPOS=$(aws ecr describe-repositories --query 'repositories[*].repositoryName' --output text)
+          
+          # Loop through each repository and delete all images
+          for REPO in $REPOS; do
+            if [[ $REPO == mcp-* || $REPO == *-server ]]; then
+              echo "Cleaning repository: $REPO"
+              # Get list of image digests
+              DIGESTS=$(aws ecr list-images --repository-name $REPO --query 'imageIds[*].imageDigest' --output text)
+              
+              if [ ! -z "$DIGESTS" ]; then
+                # Delete all images in the repository
+                aws ecr batch-delete-image --repository-name $REPO --image-ids $(echo $DIGESTS | sed 's/\s\+/,imageDigest=/g; s/^/imageDigest=/') || true
+                echo "Images deleted from $REPO"
+              else
+                echo "No images found in $REPO"
+              fi
+            fi
+          done
+      
       - name: Terraform Destroy
         working-directory: ${{ env.TF_WORKING_DIR }}
         run: terraform destroy -auto-approve -var="aws_region=${{ github.event.inputs.aws_region }}" -var="github_repository=${{ github.repository }}"
+        continue-on-error: true
+        
+      - name: Force Destroy Resources if Terraform Failed
+        if: ${{ failure() }}
+        run: |
+          echo "Terraform destroy encountered issues. Attempting to force delete resources..."
+          
+          # Force delete ECR repositories
+          REPOS=$(aws ecr describe-repositories --query 'repositories[*].repositoryName' --output text)
+          for REPO in $REPOS; do
+            if [[ $REPO == mcp-* || $REPO == *-server ]]; then
+              echo "Force deleting repository: $REPO"
+              aws ecr delete-repository --repository-name $REPO --force || true
+            fi
+          done
+          
+          # Try Terraform destroy one more time
+          cd ${{ env.TF_WORKING_DIR }}
+          terraform destroy -auto-approve -var="aws_region=${{ github.event.inputs.aws_region }}" -var="github_repository=${{ github.repository }}" || true
 
       - name: Cleanup Confirmation
         run: |

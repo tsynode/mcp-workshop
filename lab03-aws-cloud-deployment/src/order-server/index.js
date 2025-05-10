@@ -53,5 +53,12 @@ if (!process.env.AWS_LAMBDA_FUNCTION_NAME) {
   });
 }
 
-// For Lambda, export the app
+// For Lambda, export the handler function
+export const handler = async (event, context) => {
+  // The AWS Lambda Web Adapter will handle the event and route the request to the Express app
+  // This is a placeholder function that will be replaced by the Lambda Web Adapter
+  return { statusCode: 200, body: 'Lambda Web Adapter will handle the request' };
+};
+
+// Also export the app for local development
 export default app;

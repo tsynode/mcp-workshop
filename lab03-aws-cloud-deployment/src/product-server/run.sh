@@ -6,9 +6,9 @@ export PATH=$PATH:$LAMBDA_TASK_ROOT/node_modules/.bin
 
 # Log the environment for debugging
 echo "Starting product server Lambda function"
-echo "NODE_PATH=$NODE_PATH"
+echo "PORT=$PORT"
+echo "AWS_LWA_PORT=$AWS_LWA_PORT"
 echo "Current directory: $(pwd)"
-echo "Directory contents: $(ls -la)"
 
 # Execute the Node.js application with the Lambda Web Adapter
-exec node index.js
+node index.js

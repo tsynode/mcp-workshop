@@ -335,32 +335,66 @@ if user_input:
                                     }
                                 
                                 # Create a tool result message following AWS documentation pattern
-                                tool_result_message = {
-                                    "role": "user",
-                                    "content": [
-                                        {
-                                            "toolResult": tool_result
-                                        }
-                                    ]
-                                }
+                                # We need to ensure we're not sending more toolResult blocks than toolUse blocks
+                                # First, get the previous response which should contain the toolUse
+                                previous_response = response
                                 
-                                st.sidebar.write("Tool result message:")
-                                st.sidebar.json(tool_result_message)
+                                # Extract the toolUse from the previous response
+                                previous_output = previous_response.get('output', {})
+                                previous_message = previous_output.get('message', {})
+                                previous_contents = previous_message.get('content', [])
                                 
-                                # Add the tool result message to the conversation history
-                                messages_for_model.append(tool_result_message)
+                                # Find all toolUse blocks in the previous response
+                                tool_uses = []
+                                for content in previous_contents:
+                                    if 'toolUse' in content:
+                                        tool_uses.append(content.get('toolUse', {}))
                                 
-                                # Continue the conversation with the updated messages
-                                response = bedrock_runtime.converse(
-                                    modelId=model_id,
-                                    messages=messages_for_model,
-                                    system=system_prompt,
-                                    inferenceConfig={
-                                        "maxTokens": max_tokens,
-                                        "temperature": temperature
-                                    },
-                                    toolConfig=tool_config
-                                )                      
+                                # Log the number of toolUse blocks found
+                                st.sidebar.write(f"Found {len(tool_uses)} toolUse blocks in previous response")
+                                
+                                # Only proceed if we have at least one toolUse
+                                if len(tool_uses) > 0:
+                                    # Create the message with the tool result
+                                    tool_result_message = {
+                                        "role": "user",
+                                        "content": [
+                                            {
+                                                "toolResult": tool_result
+                                            }
+                                        ]
+                                    }
+                                    
+                                    st.sidebar.write("Tool result message:")
+                                    st.sidebar.json(tool_result_message)
+                                    
+                                    # Create a new conversation history with the original messages plus the tool result
+                                    # We need to ensure we're not including any previous toolResult messages
+                                    filtered_messages = []
+                                    for msg in st.session_state.messages:
+                                        filtered_messages.append({
+                                            "role": msg["role"],
+                                            "content": msg["content"]
+                                        })
+                                    
+                                    # Add the tool result message
+                                    filtered_messages.append(tool_result_message)
+                                    
+                                    # Continue the conversation with the updated messages
+                                    response = bedrock_runtime.converse(
+                                        modelId=model_id,
+                                        messages=filtered_messages,
+                                        system=system_prompt,
+                                        inferenceConfig={
+                                            "maxTokens": max_tokens,
+                                            "temperature": temperature
+                                        },
+                                        toolConfig=tool_config
+                                    )
+                                else:
+                                    st.sidebar.error("No toolUse blocks found in previous response, cannot send toolResult")
+                                    # Just use the previous response
+                                    response = previous_response                      
                             st.sidebar.write("Final Response:")
                             st.sidebar.json(response)
                         except Exception as e:

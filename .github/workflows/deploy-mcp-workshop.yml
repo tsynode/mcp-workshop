@@ -182,9 +182,9 @@ jobs:
           ORDER_ENDPOINT=$(terraform output -raw order_server_endpoint 2>/dev/null || echo "")
           MCP_PLAYGROUND_ALB=$(terraform output -raw mcp_playground_url 2>/dev/null || echo "pending-mcp-playground-alb")
           
-          # Clean up the URLs to remove any trailing characters
-          PRODUCT_ENDPOINT=$(echo "$PRODUCT_ENDPOINT" | grep -o 'https://[^[:space:]]*' | head -1)
-          ORDER_ENDPOINT=$(echo "$ORDER_ENDPOINT" | grep -o 'https://[^[:space:]]*' | head -1)
+          # Clean up the URLs to remove any trailing characters and debug info
+          PRODUCT_ENDPOINT=$(echo "$PRODUCT_ENDPOINT" | grep -o 'https://[^[:space:]]*' | head -1 | sed 's/::debug::Terraform//')
+          ORDER_ENDPOINT=$(echo "$ORDER_ENDPOINT" | grep -o 'https://[^[:space:]]*' | head -1 | sed 's/::debug::Terraform//')
           MCP_PLAYGROUND_ALB=$(echo "$MCP_PLAYGROUND_ALB" | grep -o '[^[:space:]]*\.elb\.amazonaws\.com' | head -1)
           
           # Set the environment variables if they're not empty
@@ -283,27 +283,16 @@ jobs:
           echo ""
           echo "This approach gives you the flexibility to test both local and cloud-based clients."
           
-          # Get the Lambda function names from Terraform outputs
-          PRODUCT_LAMBDA=$(terraform output -raw product_server_lambda_function_name 2>/dev/null || echo "")
-          ORDER_LAMBDA=$(terraform output -raw order_server_lambda_function_name 2>/dev/null || echo "")
-          
-          # CloudWatch Logs section with specific Lambda function links
+          # CloudWatch Logs section with generic Lambda function links
           echo ""
           echo "\n📊 CloudWatch Logs:\n"
-          echo "To view Lambda function logs, use these links:"
+          echo "To view Lambda function logs, use the CloudWatch Logs console:"
+          echo "- CloudWatch Logs Console: https://console.aws.amazon.com/cloudwatch/home?region=${AWS_REGION}#logsV2:log-groups"
           
-          # Create specific CloudWatch links for each Lambda function
-          if [[ -n "$PRODUCT_LAMBDA" ]]; then
-            echo "- Product Server Logs: https://console.aws.amazon.com/cloudwatch/home?region=${AWS_REGION}#logsV2:log-groups/log-group/aws/lambda/${PRODUCT_LAMBDA}"
-          else
-            echo "- Product Server Logs: https://console.aws.amazon.com/cloudwatch/home?region=${AWS_REGION}#logsV2:log-groups"
-          fi
-          
-          if [[ -n "$ORDER_LAMBDA" ]]; then
-            echo "- Order Server Logs: https://console.aws.amazon.com/cloudwatch/home?region=${AWS_REGION}#logsV2:log-groups/log-group/aws/lambda/${ORDER_LAMBDA}"
-          else
-            echo "- Order Server Logs: https://console.aws.amazon.com/cloudwatch/home?region=${AWS_REGION}#logsV2:log-groups"
-          fi
+          echo ""
+          echo "Look for log groups with names like:"
+          echo "- /aws/lambda/mcp-workshop-product-server-*"
+          echo "- /aws/lambda/mcp-workshop-order-server-*"
           
           echo ""
           echo "If you don't see log groups for the Lambda functions, it might indicate that:"

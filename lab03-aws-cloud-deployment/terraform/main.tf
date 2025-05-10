@@ -86,10 +86,10 @@ Claude Desktop Configuration:
 {
   "mcp_servers": {
     "aws-product-server": {
-      "url": "${aws_apigatewayv2_api.mcp_api.api_endpoint}/product-server/mcp"
+      "url": "https://${aws_api_gateway_rest_api.mcp_api.id}.execute-api.${var.aws_region}.amazonaws.com/${aws_api_gateway_stage.mcp_api_stage.stage_name}/mcp"
     },
     "aws-order-server": {
-      "url": "${aws_apigatewayv2_api.mcp_api.api_endpoint}/order-server/mcp"
+      "url": "https://${aws_api_gateway_rest_api.mcp_api.id}.execute-api.${var.aws_region}.amazonaws.com/${aws_api_gateway_stage.mcp_api_stage.stage_name}/order-mcp"
     }
   }
 }
@@ -107,14 +107,14 @@ output "order_server_lambda_function_name" {
 
 # Output the API Gateway endpoint
 output "mcp_api_endpoint" {
-  value = aws_apigatewayv2_api.mcp_api.api_endpoint
+  value = "https://${aws_api_gateway_rest_api.mcp_api.id}.execute-api.${var.aws_region}.amazonaws.com/${aws_api_gateway_stage.mcp_api_stage.stage_name}"
 }
 
 # Output the specific MCP server endpoints
 output "product_server_endpoint" {
-  value = "${aws_apigatewayv2_api.mcp_api.api_endpoint}/product-server/mcp"
+  value = "https://${aws_api_gateway_rest_api.mcp_api.id}.execute-api.${var.aws_region}.amazonaws.com/${aws_api_gateway_stage.mcp_api_stage.stage_name}/mcp"
 }
 
 output "order_server_endpoint" {
-  value = "${aws_apigatewayv2_api.mcp_api.api_endpoint}/order-server/mcp"
+  value = "https://${aws_api_gateway_rest_api.mcp_api.id}.execute-api.${var.aws_region}.amazonaws.com/${aws_api_gateway_stage.mcp_api_stage.stage_name}/order-mcp"
 }

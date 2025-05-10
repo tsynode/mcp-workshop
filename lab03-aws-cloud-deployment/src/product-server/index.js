@@ -53,35 +53,5 @@ if (!process.env.AWS_LAMBDA_FUNCTION_NAME) {
   });
 }
 
-// For Lambda, export the handler function
-export const handler = async (event, context) => {
-  // Log the incoming event and context to help with debugging
-  console.log('Lambda function invoked with event:', JSON.stringify(event, null, 2));
-  console.log('Lambda function context:', JSON.stringify({
-    functionName: context.functionName,
-    functionVersion: context.functionVersion,
-    awsRequestId: context.awsRequestId,
-    logGroupName: context.logGroupName,
-    logStreamName: context.logStreamName,
-  }, null, 2));
-  
-  try {
-    // The AWS Lambda Web Adapter will handle the event and route the request to the Express app
-    // This logging will help us understand if the handler is being called correctly
-    l.info(`Lambda handler invoked for ${event.path || 'unknown path'}`);
-    
-    // Return a response that will be overridden by the Lambda Web Adapter
-    return { statusCode: 200, body: 'Lambda Web Adapter will handle the request' };
-  } catch (error) {
-    // Log any errors that occur
-    console.error('Error in Lambda handler:', error);
-    l.error(`Lambda handler error: ${error.message}`);
-    return { 
-      statusCode: 500, 
-      body: JSON.stringify({ error: 'Internal Server Error', message: error.message }) 
-    };
-  }
-};
-
-// Also export the app for local development
+// For Lambda, export the app
 export default app;

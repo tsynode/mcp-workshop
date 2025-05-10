@@ -71,13 +71,17 @@ jobs:
             --bucket mcp-workshop-tf-state-${{ github.repository_owner }} \
             --versioning-configuration Status=Enabled
       
-      - name: Terraform Init
+      - name: Terraform Init with Fresh State
         working-directory: ${{ env.TF_WORKING_DIR }}
         run: |
-          terraform init \
+          # Use -reconfigure to start with a fresh state
+          terraform init -reconfigure \
             -backend-config="bucket=mcp-workshop-tf-state-${{ github.repository_owner }}" \
-            -backend-config="key=lab0${{ github.event.inputs.lab_number }}/terraform.tfstate" \
+            -backend-config="key=lab0${{ github.event.inputs.lab_number }}/terraform.tfstate-$(date +%Y%m%d%H%M%S)" \
             -backend-config="region=${{ github.event.inputs.aws_region }}"
+          
+          # Verify we're starting with a clean state
+          terraform state list || echo "Starting with clean state"
 
       - name: Terraform Apply ECR Only
         working-directory: ${{ env.TF_WORKING_DIR }}

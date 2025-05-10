@@ -177,17 +177,17 @@ jobs:
           echo "Available Terraform outputs:"
           terraform output || echo "No outputs available yet"
           
-          # Get the MCP Playground ALB DNS name with fallback
-          MCP_PLAYGROUND_ALB=$(terraform output -raw mcp_playground_url 2>/dev/null | grep -o '[^[:space:]]*\.elb\.amazonaws\.com' | head -1 || echo "pending-mcp-playground-alb")
+          # Get the MCP Playground ALB DNS name from the deployment_info output
+          MCP_PLAYGROUND_ALB=$(terraform output -raw deployment_info | grep -A 1 "# ECS/Fargate-based MCP Playground" | grep "MCP Playground:" | cut -d' ' -f3 || echo "pending-mcp-playground-alb")
           
-          # Get the API endpoints from Terraform output and clean them up
-          PRODUCT_ENDPOINT=$(terraform output -raw product_server_endpoint 2>/dev/null | grep -o "https://[^[:space:]]*" || echo "")
+          # Get the API endpoints directly from the deployment_info output
+          PRODUCT_ENDPOINT=$(terraform output -raw deployment_info | grep -A 1 "# Lambda-based MCP Servers" | grep "Product Server:" | cut -d' ' -f3)
           if [[ -n "$PRODUCT_ENDPOINT" ]]; then
             echo "Product Server Endpoint: $PRODUCT_ENDPOINT"
             echo "PRODUCT_ENDPOINT=$PRODUCT_ENDPOINT" >> $GITHUB_ENV
           fi
           
-          ORDER_ENDPOINT=$(terraform output -raw order_server_endpoint 2>/dev/null | grep -o "https://[^[:space:]]*" || echo "")
+          ORDER_ENDPOINT=$(terraform output -raw deployment_info | grep -A 2 "# Lambda-based MCP Servers" | grep "Order Server:" | cut -d' ' -f3)
           if [[ -n "$ORDER_ENDPOINT" ]]; then
             echo "Order Server Endpoint: $ORDER_ENDPOINT"
             echo "ORDER_ENDPOINT=$ORDER_ENDPOINT" >> $GITHUB_ENV

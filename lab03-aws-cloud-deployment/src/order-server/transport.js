@@ -21,8 +21,8 @@ const postRequestHandler = async (req, res) => {
             // This is a stateless MCP server, so we don't need to keep track of sessions
             sessionIdGenerator: undefined,
 
-            // Using SSE format for responses to be compatible with Bedrock client
-            enableJsonResponse: false,            
+            // Using JSON format for responses to match the reference implementation
+            enableJsonResponse: true,            
         });
 
         res.on("close", () => {

@@ -160,19 +160,60 @@ if user_input:
             max_tokens = 4096
             temperature = 0.7
             
+            # Add a function to discover tools using the MCP tools/list method
+            def discover_mcp_tools(mcp_url):
+                try:
+                    # Create a tools/list request according to MCP specification
+                    list_request = {
+                        "jsonrpc": "2.0",
+                        "method": "tools/list",
+                        "params": {},
+                        "id": "discovery"
+                    }
+                    
+                    # Send the request to the MCP server
+                    response = requests.post(
+                        mcp_url,
+                        json=list_request,
+                        headers={
+                            'Content-Type': 'application/json',
+                            'Accept': 'application/json'
+                        },
+                        verify=False  # For development only
+                    )
+                    
+                    # Parse the response
+                    if response.status_code == 200:
+                        result = response.json()
+                        if "result" in result and "tools" in result["result"]:
+                            return result["result"]["tools"]
+                    
+                    # Return empty list if discovery fails
+                    return []
+                except Exception as e:
+                    st.sidebar.error(f"Error discovering tools: {str(e)}")
+                    return []
+            
+            # Try to discover tools from both MCP servers
+            product_tools = discover_mcp_tools(product_server_url)
+            order_tools = discover_mcp_tools(order_server_url)
+            
+            # Log the discovered tools
+            st.sidebar.write("Discovered MCP Tools:")
+            st.sidebar.write(f"Product Server: {len(product_tools)} tools found")
+            st.sidebar.write(f"Order Server: {len(order_tools)} tools found")
+            
             # Log the tool configuration for debugging
             st.sidebar.write("Tool Configuration:")
             st.sidebar.json(tool_config)
             
-            # Add more detailed system prompt to guide the model on using MCP tools
+            # Create a more MCP-aligned system prompt that focuses on tool discovery
             system_prompt = [
-                {"text": "You are a retail assistant that can help customers find products and place orders. "
-                        "You have access to two MCP tools: \n"
-                        "1. product-server: Use this to get product information from the retail catalog\n"
-                        "2. order-server: Use this to place and manage orders for products\n\n"
-                        "When asked about products, ALWAYS use the product-server tool.\n"
-                        "When asked to place orders, ALWAYS use the order-server tool.\n"
-                        "Show your work by explaining what tools you're using and why."}
+                {"text": "You are a retail assistant that can help customers with their shopping needs. "
+                        "You have access to MCP servers that provide various retail capabilities. "
+                        "Use the available tools to help customers with their requests. "
+                        "You can discover what tools are available and what they can do through their schemas. "
+                        "Respond to customer queries by using the most appropriate tool for each task."}
             ]
             
             # Call the converse API with the selected model
@@ -308,68 +349,72 @@ if user_input:
                                 
                             st.sidebar.write(f"Parsed MCP response: {json.dumps(mcp_result, indent=2)}")
                             
-                            # Following Amazon's official documentation for handling tool results
-                            # https://docs.aws.amazon.com/bedrock/latest/userguide/tool-use.html
+                            # Start with a completely fresh approach based on Amazon's examples
+                            # We'll follow the exact structure shown in their documentation
                             
-                            # 1. Get the original user message that started this conversation
-                            original_messages = []
-                            for msg in st.session_state.messages:
-                                if msg["role"] == "user":
-                                    original_messages.append({
-                                        "role": "user",
-                                        "content": msg["content"]
-                                    })
-                                    break
-                            
-                            # 2. Prepare the tool result based on success or error
+                            # Extract the result content from the MCP response
                             if "error" in mcp_result:
                                 st.sidebar.error(f"MCP server returned an error: {json.dumps(mcp_result['error'], indent=2)}")
                                 # Create an error message for the tool result
                                 error_message = mcp_result.get('error', {}).get('message', 'Unknown error')
-                                tool_result_content = {"error": error_message}
+                                result_content = {"error": error_message}
                             elif "result" in mcp_result:
                                 # Extract the result from the MCP response for success case
-                                tool_result_content = mcp_result["result"]
+                                result_content = mcp_result["result"]
                             else:
                                 # Fallback for unexpected response format
-                                tool_result_content = {"message": "Unexpected response format from MCP server"}
+                                result_content = {"message": "Unexpected response format from MCP server"}
                             
-                            # 3. Create a new conversation with the original request
-                            # This is the key part - we're starting a completely new conversation
-                            # with just the original user message and the tool result
-                            
-                            # Get the original user message or use a default if none exists
-                            if not original_messages:
-                                original_messages = [{
+                            # Create a completely new conversation history
+                            # First message is the user's original request
+                            new_conversation = [
+                                {
                                     "role": "user",
-                                    "content": "Show me products"
-                                }]
-                            
-                            # Add the tool result directly to the original message
-                            # This is the key difference - we're not trying to maintain the conversation
-                            # history with the tool use, just sending the result directly
-                            tool_result_message = {
-                                "role": "user",
-                                "content": original_messages[0]["content"],
-                                "toolResult": {
-                                    "toolName": tool_name,
-                                    "toolUseId": tool_use_id,
-                                    "content": tool_result_content
+                                    "content": "Show me all available products"
                                 }
-                            }
+                            ]
                             
-                            # Log the simplified approach
-                            st.sidebar.write("Using simplified approach with direct tool result:")
-                            st.sidebar.json(tool_result_message)
+                            # Second message is the assistant's response with ONLY the tool use
+                            # No natural language text - just the pure tool use information
+                            new_conversation.append({
+                                "role": "assistant",
+                                "content": [
+                                    {
+                                        "toolUse": {
+                                            "toolUseId": tool_use_id,
+                                            "name": tool_name,
+                                            "input": tool_input
+                                        }
+                                    }
+                                ]
+                            })
+                            
+                            # Third message is the user's response with the tool result
+                            new_conversation.append({
+                                "role": "user",
+                                "content": [
+                                    {
+                                        "toolResult": {
+                                            "toolUseId": tool_use_id,
+                                            "content": [
+                                                {
+                                                    "json": result_content
+                                                }
+                                            ]
+                                        }
+                                    }
+                                ]
+                            })
+                            
+                            # Log the new conversation structure
+                            st.sidebar.write("Using Amazon's exact format for tool results:")
+                            st.sidebar.json(new_conversation)
                                 
-                            # Continue the conversation with the simplified message
-                            # Create a new messages array with just the tool result message
-                            new_messages = [tool_result_message]
-                            
-                            # Continue the conversation with just the tool result
+                            # Continue the conversation with the new conversation structure
+                            # that follows Amazon's exact format for tool results
                             response = bedrock_runtime.converse(
                                 modelId=model_id,
-                                messages=new_messages,
+                                messages=new_conversation,
                                 system=system_prompt,
                                 inferenceConfig={
                                     "maxTokens": max_tokens,

@@ -21,52 +21,29 @@ variable "availability_zones_count" {
   default     = 2
 }
 
-variable "container_port_product" {
-  description = "Port exposed by the product server container"
-  type        = number
-  default     = 3000
-}
-
-variable "container_port_order" {
-  description = "Port exposed by the order server container"
-  type        = number
-  default     = 3001
-}
-
-variable "product_server_image" {
-  description = "Docker image for product server"
+# Lambda function configuration
+variable "lambda_runtime" {
+  description = "Runtime for Lambda functions"
   type        = string
-  default     = "product-server:latest"
+  default     = "nodejs20.x"
 }
 
-variable "order_server_image" {
-  description = "Docker image for order server"
-  type        = string
-  default     = "order-server:latest"
-}
-
-variable "product_server_cpu" {
-  description = "CPU units for product server (1024 = 1 vCPU)"
+variable "lambda_timeout" {
+  description = "Timeout for Lambda functions in seconds"
   type        = number
-  default     = 256
+  default     = 30
 }
 
 variable "product_server_memory" {
-  description = "Memory for product server in MiB"
-  type        = number
-  default     = 512
-}
-
-variable "order_server_cpu" {
-  description = "CPU units for order server (1024 = 1 vCPU)"
+  description = "Memory for product server Lambda function in MB"
   type        = number
   default     = 256
 }
 
 variable "order_server_memory" {
-  description = "Memory for order server in MiB"
+  description = "Memory for order server Lambda function in MB"
   type        = number
-  default     = 512
+  default     = 256
 }
 
 variable "health_check_path" {

@@ -7,9 +7,9 @@ resource "aws_lambda_function" "product_server" {
   function_name = "${local.name_prefix}-product-server-${random_string.suffix.result}"
   role          = aws_iam_role.product_server_role.arn
   handler       = "index.handler"
-  runtime       = "nodejs20.x"
-  timeout       = 30
-  memory_size   = 256
+  runtime       = var.lambda_runtime
+  timeout       = var.lambda_timeout
+  memory_size   = var.product_server_memory
 
   # Use Lambda Web Adapter Layer
   layers = [
@@ -35,9 +35,9 @@ resource "aws_lambda_function" "order_server" {
   function_name = "${local.name_prefix}-order-server-${random_string.suffix.result}"
   role          = aws_iam_role.product_server_role.arn
   handler       = "index.handler"
-  runtime       = "nodejs20.x"
-  timeout       = 30
-  memory_size   = 256
+  runtime       = var.lambda_runtime
+  timeout       = var.lambda_timeout
+  memory_size   = var.order_server_memory
 
   # Use Lambda Web Adapter Layer
   layers = [

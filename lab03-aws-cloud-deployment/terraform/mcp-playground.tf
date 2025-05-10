@@ -148,11 +148,11 @@ resource "aws_ecs_task_definition" "mcp_playground" {
       environment = [
         {
           name  = "PRODUCT_MCP_SERVER_URL"
-          value = "${aws_apigatewayv2_api.mcp_api.api_endpoint}/product-server/mcp"
+          value = "https://${aws_api_gateway_rest_api.mcp_api.id}.execute-api.${var.aws_region}.amazonaws.com/${aws_api_gateway_stage.mcp_api_stage.stage_name}/mcp"
         },
         {
           name  = "ORDER_MCP_SERVER_URL"
-          value = "${aws_apigatewayv2_api.mcp_api.api_endpoint}/order-server/mcp"
+          value = "https://${aws_api_gateway_rest_api.mcp_api.id}.execute-api.${var.aws_region}.amazonaws.com/${aws_api_gateway_stage.mcp_api_stage.stage_name}/order-mcp"
         },
         {
           name  = "BEDROCK_MODEL_ID"

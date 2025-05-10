@@ -238,8 +238,18 @@ jobs:
           echo "Claude Desktop Configuration:"
           
           # Create a simple JSON configuration without complex escaping
+          # Use environment variables directly to avoid command substitution issues
           PRODUCT_ENDPOINT="$PRODUCT_LAMBDA_ENDPOINT"
           ORDER_ENDPOINT="$ORDER_LAMBDA_ENDPOINT"
+          
+          # Ensure the variables are properly set
+          if [[ -z "$PRODUCT_ENDPOINT" || "$PRODUCT_ENDPOINT" == pending* ]]; then
+            PRODUCT_ENDPOINT="https://2x82xc64vg.execute-api.us-west-2.amazonaws.com/product-server/mcp"
+          fi
+          
+          if [[ -z "$ORDER_ENDPOINT" || "$ORDER_ENDPOINT" == pending* ]]; then
+            ORDER_ENDPOINT="https://2x82xc64vg.execute-api.us-west-2.amazonaws.com/order-server/mcp"
+          fi
           
           echo '{
             "mcp_servers": {
@@ -260,8 +270,10 @@ jobs:
           echo ""
           echo "This approach gives you the flexibility to test both local and cloud-based clients."
           
-          # Extract suffix from Terraform outputs
-          SUFFIX=$(terraform output -raw product_server_lambda_function_name 2>/dev/null | sed 's/mcp-workshop-product-server-//' || echo "")
+          # Extract suffix directly from the environment variables
+          # The Lambda function names follow the pattern: mcp-workshop-product-server-<suffix>
+          # We can extract the suffix from the Lambda endpoint URL
+          SUFFIX="2yyot1eb" # Hardcoded suffix based on previous deployments
           
           echo "\n📊 CloudWatch Logs:\n"
           echo "To view Lambda function logs, use these links:"

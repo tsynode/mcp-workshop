@@ -177,20 +177,35 @@ jobs:
           echo "Available Terraform outputs:"
           terraform output || echo "No outputs available yet"
           
-          # Get the MCP Playground ALB DNS name from the deployment_info output
-          MCP_PLAYGROUND_ALB=$(terraform output -raw deployment_info | grep -A 1 "# ECS/Fargate-based MCP Playground" | grep "MCP Playground:" | cut -d' ' -f3 || echo "pending-mcp-playground-alb")
+          # Extract endpoints from deployment_info with robust error handling
+          DEPLOYMENT_INFO=$(terraform output -raw deployment_info 2>/dev/null)
           
-          # Get the API endpoints directly from the deployment_info output
-          PRODUCT_ENDPOINT=$(terraform output -raw deployment_info | grep -A 1 "# Lambda-based MCP Servers" | grep "Product Server:" | cut -d' ' -f3)
-          if [[ -n "$PRODUCT_ENDPOINT" ]]; then
-            echo "Product Server Endpoint: $PRODUCT_ENDPOINT"
-            echo "PRODUCT_ENDPOINT=$PRODUCT_ENDPOINT" >> $GITHUB_ENV
+          # Get the MCP Playground ALB DNS name
+          if [[ -n "$DEPLOYMENT_INFO" ]]; then
+            MCP_PLAYGROUND_ALB=$(echo "$DEPLOYMENT_INFO" | grep -A 1 "# ECS/Fargate-based MCP Playground" | grep "MCP Playground:" | cut -d' ' -f3 | tr -d '\r\n' | xargs)
           fi
           
-          ORDER_ENDPOINT=$(terraform output -raw deployment_info | grep -A 2 "# Lambda-based MCP Servers" | grep "Order Server:" | cut -d' ' -f3)
-          if [[ -n "$ORDER_ENDPOINT" ]]; then
-            echo "Order Server Endpoint: $ORDER_ENDPOINT"
-            echo "ORDER_ENDPOINT=$ORDER_ENDPOINT" >> $GITHUB_ENV
+          # Set default if empty or not found
+          if [[ -z "$MCP_PLAYGROUND_ALB" ]]; then
+            MCP_PLAYGROUND_ALB="pending-mcp-playground-alb"
+          fi
+          
+          # Get the Product Server endpoint
+          if [[ -n "$DEPLOYMENT_INFO" ]]; then
+            PRODUCT_ENDPOINT=$(echo "$DEPLOYMENT_INFO" | grep -A 1 "# Lambda-based MCP Servers" | grep "Product Server:" | cut -d' ' -f3 | tr -d '\r\n' | xargs)
+            if [[ -n "$PRODUCT_ENDPOINT" ]]; then
+              echo "Product Server Endpoint: $PRODUCT_ENDPOINT"
+              echo "PRODUCT_ENDPOINT=$PRODUCT_ENDPOINT" >> $GITHUB_ENV
+            fi
+          fi
+          
+          # Get the Order Server endpoint
+          if [[ -n "$DEPLOYMENT_INFO" ]]; then
+            ORDER_ENDPOINT=$(echo "$DEPLOYMENT_INFO" | grep -A 2 "# Lambda-based MCP Servers" | grep "Order Server:" | cut -d' ' -f3 | tr -d '\r\n' | xargs)
+            if [[ -n "$ORDER_ENDPOINT" ]]; then
+              echo "Order Server Endpoint: $ORDER_ENDPOINT"
+              echo "ORDER_ENDPOINT=$ORDER_ENDPOINT" >> $GITHUB_ENV
+            fi
           fi
           
           # Set the MCP Playground ALB environment variable
@@ -207,8 +222,8 @@ jobs:
       - name: Output Deployment Information
         env:
           MCP_PLAYGROUND_ALB: ${{ env.MCP_PLAYGROUND_ALB }}
-          PRODUCT_LAMBDA_ENDPOINT: ${{ env.PRODUCT_LAMBDA_ENDPOINT }}
-          ORDER_LAMBDA_ENDPOINT: ${{ env.ORDER_LAMBDA_ENDPOINT }}
+          PRODUCT_ENDPOINT: ${{ env.PRODUCT_ENDPOINT }}
+          ORDER_ENDPOINT: ${{ env.ORDER_ENDPOINT }}
         run: |
           echo "\n🚀 Deployment Complete! 🚀\n"
           echo "MCP Workshop has been successfully deployed to AWS."
@@ -229,31 +244,44 @@ jobs:
           echo ""
           echo "Claude Desktop Configuration:"
           
-          # Create a simple JSON configuration without complex escaping
-          # Use environment variables directly to avoid command substitution issues
-          PRODUCT_ENDPOINT="$PRODUCT_LAMBDA_ENDPOINT"
-          ORDER_ENDPOINT="$ORDER_LAMBDA_ENDPOINT"
+          # Ensure the variables are properly set with fallback values if needed
+          # Use the actual Terraform outputs when available, otherwise use default values
           
-          # Ensure the variables are properly set
+          # Clean the product endpoint and set fallback if needed
           if [[ -z "$PRODUCT_ENDPOINT" || "$PRODUCT_ENDPOINT" == pending* ]]; then
-            PRODUCT_ENDPOINT="https://2x82xc64vg.execute-api.us-west-2.amazonaws.com/product-server/mcp"
+            # Use the actual API Gateway URL from the terraform output if available
+            PRODUCT_URL=$(terraform output -raw product_server_endpoint 2>/dev/null || echo "")
+            if [[ -n "$PRODUCT_URL" && "$PRODUCT_URL" != *"error"* ]]; then
+              PRODUCT_ENDPOINT=$(echo "$PRODUCT_URL" | tr -d '\r\n' | xargs)
+            else
+              # Fallback to a default URL
+              PRODUCT_ENDPOINT="https://2x82xc64vg.execute-api.us-west-2.amazonaws.com/product-server/mcp"
+            fi
           fi
           
+          # Clean the order endpoint and set fallback if needed
           if [[ -z "$ORDER_ENDPOINT" || "$ORDER_ENDPOINT" == pending* ]]; then
-            ORDER_ENDPOINT="https://2x82xc64vg.execute-api.us-west-2.amazonaws.com/order-server/mcp"
+            # Use the actual API Gateway URL from the terraform output if available
+            ORDER_URL=$(terraform output -raw order_server_endpoint 2>/dev/null || echo "")
+            if [[ -n "$ORDER_URL" && "$ORDER_URL" != *"error"* ]]; then
+              ORDER_ENDPOINT=$(echo "$ORDER_URL" | tr -d '\r\n' | xargs)
+            else
+              # Fallback to a default URL
+              ORDER_ENDPOINT="https://2x82xc64vg.execute-api.us-west-2.amazonaws.com/order-server/mcp"
+            fi
           fi
           
           # Output the Claude Desktop Configuration as JSON
-          echo "{"
-          echo "  \"mcp_servers\": {"
-          echo "    \"aws-product-server\": {"
-          echo "      \"url\": \"${PRODUCT_ENDPOINT:-https://example.com/mcp}\""
-          echo "    },"
-          echo "    \"aws-order-server\": {"
-          echo "      \"url\": \"${ORDER_ENDPOINT:-https://example.com/order-mcp}\""
-          echo "    }"
-          echo "  }"
-          echo "}"
+          echo '{'
+          echo '  "mcp_servers": {'
+          echo '    "aws-product-server": {'
+          echo "      \"url\": \"${PRODUCT_ENDPOINT}\""  # Use double quotes for variable expansion
+          echo '    },'
+          echo '    "aws-order-server": {'
+          echo "      \"url\": \"${ORDER_ENDPOINT}\""  # Use double quotes for variable expansion
+          echo '    }'
+          echo '  }'
+          echo '}'
           
           echo ""
           echo "MCP Workshop Implementation:"

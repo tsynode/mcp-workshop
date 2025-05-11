@@ -246,44 +246,49 @@ if user_input:
                         else:
                             result_content = {"message": "Unexpected response format from MCP server"}
                         
-                        # Create a minimal conversation structure following Bedrock's requirements
-                        # We need to preserve the exact conversation flow that Bedrock expects
+                        # Create a fresh conversation with just the essential elements for Bedrock
+                        # This is critical to avoid the ValidationException about toolResult blocks
                         
-                        # Start with just the original user message
-                        conversation = []
-                        
-                        # Add only the most recent user message
-                        # This is important because we need to make sure the conversation history
-                        # has exactly one user message, one assistant tool use, and one tool result
+                        # Start with only the most recent user message
+                        last_user_message = None
                         for msg in messages_for_model:
                             if msg["role"] == "user":
-                                conversation = [msg]  # Replace any previous messages
+                                last_user_message = msg
                         
-                        # Now add the assistant's response with the tool use
-                        # This must be the exact format that Bedrock expects
-                        conversation.append({
-                            "role": "assistant",
-                            "content": [
-                                {"text": "I'll help you with that."},
-                                {"toolUse": {
-                                    "toolUseId": tool_use_id,
-                                    "name": bedrock_tool_name,  # Use the sanitized name (with underscores)
-                                    "input": tool_input
-                                }}
-                            ]
-                        })
+                        if not last_user_message:
+                            last_user_message = {"role": "user", "content": ["Please help me"]}
                         
-                        # Add the tool result as a user message
-                        # This must match exactly one toolUse from the previous turn
-                        conversation.append({
-                            "role": "user",
-                            "content": [
-                                {"toolResult": {
-                                    "toolUseId": tool_use_id,
-                                    "content": [{"json": result_content}]
-                                }}
-                            ]
-                        })
+                        # Create a completely fresh conversation with just three messages
+                        conversation = [
+                            # 1. The user's original query
+                            last_user_message,
+                            
+                            # 2. The assistant's response with exactly one toolUse
+                            {
+                                "role": "assistant",
+                                "content": [
+                                    # Include a simple text message first
+                                    {"text": "I'll help you with that."},
+                                    # Then include exactly one toolUse
+                                    {"toolUse": {
+                                        "toolUseId": tool_use_id,
+                                        "name": bedrock_tool_name,
+                                        "input": tool_input
+                                    }}
+                                ]
+                            },
+                            
+                            # 3. The user's message with exactly one toolResult that matches the toolUse
+                            {
+                                "role": "user",
+                                "content": [
+                                    {"toolResult": {
+                                        "toolUseId": tool_use_id,
+                                        "content": [{"json": result_content}]
+                                    }}
+                                ]
+                            }
+                        ]
                         
                         # Log the conversation for debugging
                         st.sidebar.write("MCP Tool Result Conversation:")

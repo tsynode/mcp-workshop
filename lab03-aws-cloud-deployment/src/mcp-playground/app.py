@@ -223,7 +223,7 @@ if user_input:
                     # Extract the tool call details
                     tool_call = tool_use
                     tool_use_id = tool_call.get('toolUseId')
-                    tool_name = tool_call.get('name')
+                    tool_name = tool_call.get('name')  # This is the name as it appears in Bedrock's response
                     tool_input = tool_call.get('input', {})
                     
                     # Log the tool call details
@@ -255,51 +255,38 @@ if user_input:
                         else:
                             result_content = {"message": "Unexpected response format from MCP server"}
                         
-                        # Create a fresh conversation with just the essential elements for Bedrock
-                        # This is critical to avoid the ValidationException about toolResult blocks
+                        # COMPLETELY NEW APPROACH: Start with a fresh conversation
+                        # Instead of trying to build on the existing conversation,
+                        # we'll create a new one from scratch with just the user's query
                         
-                        # Start with only the most recent user message
-                        last_user_message = None
+                        # Extract the original user query
+                        user_query = ""
                         for msg in messages_for_model:
                             if msg["role"] == "user":
-                                last_user_message = msg
+                                # Get the most recent user message
+                                if isinstance(msg.get("content"), list):
+                                    for content_item in msg["content"]:
+                                        if isinstance(content_item, dict) and "text" in content_item:
+                                            user_query = content_item["text"]
+                                elif isinstance(msg.get("content"), str):
+                                    user_query = msg["content"]
                         
-                        if not last_user_message:
-                            last_user_message = {"role": "user", "content": "Please help me"}
+                        if not user_query:
+                            user_query = "Please help me with product information"
                         
-                        # Create a completely fresh conversation with just three messages
-                        # IMPORTANT: We need to exactly match the format of the original Bedrock response
+                        # Create a completely new conversation with just the user query
                         conversation = [
-                            # 1. The user's original query
-                            last_user_message,
-                            
-                            # 2. The assistant's response with exactly one toolUse
-                            # We must use the EXACT same tool name that Bedrock sent us
-                            {
-                                "role": "assistant",
-                                "content": [
-                                    # Include a simple text message first
-                                    {"text": "I'll help you with that."},
-                                    # Then include exactly one toolUse with the ORIGINAL tool name
-                                    {"toolUse": {
-                                        "toolUseId": tool_use_id,
-                                        "name": bedrock_tool_name,  # Use the EXACT original name from Bedrock
-                                        "input": tool_input
-                                    }}
-                                ]
-                            },
-                            
-                            # 3. The user's message with exactly one toolResult that matches the toolUse
                             {
                                 "role": "user",
                                 "content": [
-                                    {"toolResult": {
-                                        "toolUseId": tool_use_id,
-                                        "content": [{"json": result_content}]
-                                    }}
+                                    {"text": user_query}
                                 ]
                             }
                         ]
+                        
+                        # Log the conversation for debugging
+                        st.sidebar.write("New conversation with just the user query:")
+                        st.sidebar.json(conversation)
                         
                         # Log the conversation for debugging
                         st.sidebar.write("MCP Tool Result Conversation:")

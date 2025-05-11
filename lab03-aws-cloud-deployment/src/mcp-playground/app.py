@@ -101,9 +101,6 @@ for message in st.session_state.messages:
     with st.chat_message(message["role"]):
         st.markdown(message["content"])
 
-# --- Mode Switcher ---
-mode = st.radio("Select Mode", ["Agentic Bedrock Chat", "Manual MCP Tool Tester"], horizontal=True)
-
 if mode == "Manual MCP Tool Tester":
     st.subheader("MCP Tool Tester (Bypass Bedrock)")
     # Let user choose MCP server

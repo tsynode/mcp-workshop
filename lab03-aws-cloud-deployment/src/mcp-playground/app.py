@@ -249,17 +249,22 @@ if user_input:
                         # Create a minimal conversation structure following Bedrock's requirements
                         # We need to preserve the exact conversation flow that Bedrock expects
                         
-                        # Start with the original user message
+                        # Start with just the original user message
                         conversation = []
                         
-                        # Add all previous messages from the conversation history
+                        # Add only the most recent user message
+                        # This is important because we need to make sure the conversation history
+                        # has exactly one user message, one assistant tool use, and one tool result
                         for msg in messages_for_model:
-                            conversation.append(msg)
+                            if msg["role"] == "user":
+                                conversation = [msg]  # Replace any previous messages
                         
-                        # Add the assistant's response with the tool use
+                        # Now add the assistant's response with the tool use
+                        # This must be the exact format that Bedrock expects
                         conversation.append({
                             "role": "assistant",
                             "content": [
+                                {"text": "I'll help you with that."},
                                 {"toolUse": {
                                     "toolUseId": tool_use_id,
                                     "name": bedrock_tool_name,  # Use the sanitized name (with underscores)
@@ -269,6 +274,7 @@ if user_input:
                         })
                         
                         # Add the tool result as a user message
+                        # This must match exactly one toolUse from the previous turn
                         conversation.append({
                             "role": "user",
                             "content": [

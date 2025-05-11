@@ -220,13 +220,22 @@ if user_input:
                         break
                 
                 if tool_use:
-                    # Extract tool information
-                    bedrock_tool_name = tool_use.get('name', '')  # This is the sanitized name (with underscores)
-                    tool_input = tool_use.get('input', {})
-                    tool_use_id = tool_use.get('toolUseId', '')
+                    # Extract the tool call details
+                    tool_call = tool_use
+                    tool_use_id = tool_call.get('toolUseId')
+                    tool_name = tool_call.get('name')
+                    tool_input = tool_call.get('input', {})
                     
-                    st.sidebar.write(f"Bedrock tool name: {bedrock_tool_name}")
-                    st.sidebar.write(f"Tool input: {json.dumps(tool_input, indent=2)}")
+                    # Log the tool call details
+                    st.sidebar.write(f"Executing tool: {tool_name}")
+                    st.sidebar.write(f"Tool input: {json.dumps(tool_input)}")
+                    st.sidebar.write(f"Tool input type: {type(tool_input)}")
+                    st.sidebar.write(f"Tool input keys: {list(tool_input.keys())}")
+                    st.sidebar.write(f"Raw tool use object:\n{json.dumps(tool_call, indent=2)}")
+                    
+                    # IMPORTANT: Store the original tool name exactly as it appears in Bedrock's response
+                    # We must use this exact same name when sending the result back
+                    bedrock_tool_name = tool_name  # Store the original Bedrock tool name without modification
                     
                     try:
                         # Use the BedrockMcpAdapter to execute the tool call
@@ -256,23 +265,25 @@ if user_input:
                                 last_user_message = msg
                         
                         if not last_user_message:
-                            last_user_message = {"role": "user", "content": ["Please help me"]}
+                            last_user_message = {"role": "user", "content": "Please help me"}
                         
                         # Create a completely fresh conversation with just three messages
+                        # IMPORTANT: We need to exactly match the format of the original Bedrock response
                         conversation = [
                             # 1. The user's original query
                             last_user_message,
                             
                             # 2. The assistant's response with exactly one toolUse
+                            # We must use the EXACT same tool name that Bedrock sent us
                             {
                                 "role": "assistant",
                                 "content": [
                                     # Include a simple text message first
                                     {"text": "I'll help you with that."},
-                                    # Then include exactly one toolUse
+                                    # Then include exactly one toolUse with the ORIGINAL tool name
                                     {"toolUse": {
                                         "toolUseId": tool_use_id,
-                                        "name": bedrock_tool_name,
+                                        "name": bedrock_tool_name,  # Use the EXACT original name from Bedrock
                                         "input": tool_input
                                     }}
                                 ]

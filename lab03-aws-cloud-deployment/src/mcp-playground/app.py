@@ -247,28 +247,37 @@ if user_input:
                             result_content = {"message": "Unexpected response format from MCP server"}
                         
                         # Create a minimal conversation structure following Bedrock's requirements
-                        # We only need three messages: user request, assistant tool use, and tool result
-                        conversation = [
-                            # Original user message that started this interaction
-                            {"role": "user", "content": messages_for_model[-1]["content"]},
-                            
-                            # Assistant's tool use (no extra text, just the tool call)
-                            {"role": "assistant", "content": [
+                        # We need to preserve the exact conversation flow that Bedrock expects
+                        
+                        # Start with the original user message
+                        conversation = []
+                        
+                        # Add all previous messages from the conversation history
+                        for msg in messages_for_model:
+                            conversation.append(msg)
+                        
+                        # Add the assistant's response with the tool use
+                        conversation.append({
+                            "role": "assistant",
+                            "content": [
                                 {"toolUse": {
                                     "toolUseId": tool_use_id,
                                     "name": bedrock_tool_name,  # Use the sanitized name (with underscores)
                                     "input": tool_input
                                 }}
-                            ]},
-                            
-                            # Tool result as a user message
-                            {"role": "user", "content": [
+                            ]
+                        })
+                        
+                        # Add the tool result as a user message
+                        conversation.append({
+                            "role": "user",
+                            "content": [
                                 {"toolResult": {
                                     "toolUseId": tool_use_id,
                                     "content": [{"json": result_content}]
                                 }}
-                            ]}
-                        ]
+                            ]
+                        })
                         
                         # Log the conversation for debugging
                         st.sidebar.write("MCP Tool Result Conversation:")

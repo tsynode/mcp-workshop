@@ -255,37 +255,58 @@ if user_input:
                         else:
                             result_content = {"message": "Unexpected response format from MCP server"}
                         
-                        # COMPLETELY NEW APPROACH: Start with a fresh conversation
-                        # Instead of trying to build on the existing conversation,
-                        # we'll create a new one from scratch with just the user's query
+                        # FINAL SOLUTION: Follow the exact AWS documentation pattern
+                        # According to AWS docs, we need to construct a conversation with:
+                        # 1. Original user message
+                        # 2. Assistant's tool use message (from Bedrock response)
+                        # 3. User's tool result message (what we're constructing now)
                         
-                        # Extract the original user query
-                        user_query = ""
+                        # First, extract the original user message from the conversation history
+                        original_user_message = None
                         for msg in messages_for_model:
                             if msg["role"] == "user":
-                                # Get the most recent user message
-                                if isinstance(msg.get("content"), list):
-                                    for content_item in msg["content"]:
-                                        if isinstance(content_item, dict) and "text" in content_item:
-                                            user_query = content_item["text"]
-                                elif isinstance(msg.get("content"), str):
-                                    user_query = msg["content"]
+                                original_user_message = msg
+                                break
                         
-                        if not user_query:
-                            user_query = "Please help me with product information"
-                        
-                        # Create a completely new conversation with just the user query
-                        conversation = [
-                            {
+                        if not original_user_message:
+                            # Create a default user message if none exists
+                            original_user_message = {
                                 "role": "user",
-                                "content": [
-                                    {"text": user_query}
-                                ]
+                                "content": [{"text": "Show me product information"}]
                             }
+                        
+                        # Now construct the assistant's message with the tool use exactly as Bedrock sent it
+                        assistant_message = {
+                            "role": "assistant",
+                            "content": [
+                                {"toolUse": {
+                                    "toolUseId": tool_use_id,
+                                    "name": bedrock_tool_name,  # Use the EXACT name from Bedrock
+                                    "input": tool_input
+                                }}
+                            ]
+                        }
+                        
+                        # Finally, construct the user's message with the tool result
+                        tool_result_message = {
+                            "role": "user",
+                            "content": [
+                                {"toolResult": {
+                                    "toolUseId": tool_use_id,
+                                    "content": [{"json": result_content}]
+                                }}
+                            ]
+                        }
+                        
+                        # Create the conversation with exactly these three messages in order
+                        conversation = [
+                            original_user_message,
+                            assistant_message,
+                            tool_result_message
                         ]
                         
                         # Log the conversation for debugging
-                        st.sidebar.write("New conversation with just the user query:")
+                        st.sidebar.write("Final conversation structure:")
                         st.sidebar.json(conversation)
                         
                         # Log the conversation for debugging

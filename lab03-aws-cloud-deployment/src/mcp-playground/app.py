@@ -3,11 +3,6 @@ import boto3
 import json
 import os
 import subprocess
-import uuid
-import requests
-
-# Import our BedrockMcpAdapter
-from bedrock_mcp_adapter import BedrockMcpAdapter
 
 # Configure page
 st.set_page_config(page_title="Retail MCP Demo", layout="wide")
@@ -56,37 +51,73 @@ st.sidebar.write(f"ORDER_MCP_SERVER_URL: {os.environ.get('ORDER_MCP_SERVER_URL',
 product_server_url = os.environ.get('PRODUCT_MCP_SERVER_URL', 'https://mcp-prod-alb-989631483.us-west-2.elb.amazonaws.com/mcp')
 order_server_url = os.environ.get('ORDER_MCP_SERVER_URL', 'https://mcp-order-alb-912981373.us-west-2.elb.amazonaws.com/mcp')
 
-# Initialize the BedrockMcpAdapter
-mcp_adapter = BedrockMcpAdapter()
-
-# Register MCP servers
-st.sidebar.write("### MCP Server Registration")
-mcp_adapter.register_server('product-server', product_server_url)
-mcp_adapter.register_server('order-server', order_server_url)
-
-# Discover tools from MCP servers
-st.sidebar.write("### MCP Tool Discovery")
-
-# Discover tools from the product server
-product_tools_count = mcp_adapter.discover_tools('product-server')
-if product_tools_count > 0:
-    st.sidebar.success(f"✅ Product Server: {product_tools_count} tools discovered")
-else:
-    st.sidebar.warning("⚠️ Product Server: No tools discovered")
-    
-# Discover tools from the order server
-order_tools_count = mcp_adapter.discover_tools('order-server')
-if order_tools_count > 0:
-    st.sidebar.success(f"✅ Order Server: {order_tools_count} tools discovered")
-else:
-    st.sidebar.warning("⚠️ Order Server: No tools discovered")
-
-# Get the Bedrock tool configuration with sanitized names
-tool_config = mcp_adapter.get_tool_config()
-
-# Log the tool configuration for debugging
-st.sidebar.write("### Bedrock Tool Configuration")
-st.sidebar.json(tool_config)
+# Define your MCP tools for Bedrock Converse API
+tool_config = {
+    "tools": [
+        {
+            "toolSpec": {
+                "name": "product-server",
+                "description": "Get product information from the retail catalog. Use this to find products, check prices, and get product details.",
+                "inputSchema": {
+                    "json": {
+                        "type": "object",
+                        "properties": {
+                            "productId": {
+                                "type": "string",
+                                "description": "ID of the product to get details for"
+                            },
+                            "category": {
+                                "type": "string",
+                                "description": "Category of products to search for"
+                            },
+                            "maxPrice": {
+                                "type": "number",
+                                "description": "Maximum price for filtering products"
+                            },
+                            "inStockOnly": {
+                                "type": "boolean",
+                                "description": "Whether to only show products that are in stock"
+                            }
+                        },
+                        "x-mcp": {
+                            "url": product_server_url,
+                            "insecureTls": True  # Allow self-signed certificates
+                        }
+                    }
+                }
+            }
+        },
+        {
+            "toolSpec": {
+                "name": "order-server",
+                "description": "Place and manage orders for products. Use this to create orders and check order status.",
+                "inputSchema": {
+                    "json": {
+                        "type": "object",
+                        "properties": {
+                            "productId": {
+                                "type": "string",
+                                "description": "ID of the product to order"
+                            },
+                            "quantity": {
+                                "type": "number",
+                                "description": "Quantity of the product to order"
+                            },
+                            "orderId": {
+                                "type": "string",
+                                "description": "ID of the order to check status for"
+                            }
+                        },
+                        "x-mcp": {
+                            "url": order_server_url,
+                            "insecureTls": True  # Allow self-signed certificates
+                        }
+                    }
+                }
+            }
+        }
+    ]
+}
 
 # Set up Streamlit UI
 st.title("Retail MCP Demo with Amazon Bedrock")
@@ -101,325 +132,241 @@ for message in st.session_state.messages:
     with st.chat_message(message["role"]):
         st.markdown(message["content"])
 
-if mode == "Manual MCP Tool Tester":
-    st.subheader("MCP Tool Tester (Bypass Bedrock)")
-    # Let user choose MCP server
-    tool_server = st.selectbox("Select MCP Server", ["product-server", "order-server"])
-    if tool_server == "product-server":
-        mcp_url = product_server_url
-        available_tools = mcp_adapter.get_tools_for_server("product-server")
-    elif tool_server == "order-server":
-        mcp_url = order_server_url
-        available_tools = mcp_adapter.get_tools_for_server("order-server")
-    else:
-        mcp_url = product_server_url
-        available_tools = []
+# User input
+user_input = st.chat_input("Type your message here...")
 
-    # Let user select a tool
-    if available_tools:
-        tool_names = [tool["name"] for tool in available_tools]
-        selected_tool = st.selectbox("Select Tool", tool_names)
-        # Show tool schema for reference
-        tool_schema = next((tool for tool in available_tools if tool["name"] == selected_tool), {})
-        st.write("Tool Schema:")
-        st.json(tool_schema)
-        # Tool input as JSON
-        tool_input_str = st.text_area("Tool Input (JSON)", value="{}", height=100)
-        if st.button("Call MCP Tool"):
-            try:
-                tool_input = json.loads(tool_input_str)
-                # Prepare JSON-RPC request
-                mcp_request = {
-                    "jsonrpc": "2.0",
-                    "method": selected_tool,
-                    "params": tool_input,
-                    "id": str(uuid.uuid4())
-                }
-                st.write("Request Payload:")
-                st.json(mcp_request)
-                with st.spinner("Calling MCP tool..."):
-                    resp = requests.post(
-                        mcp_url,
-                        json=mcp_request,
-                        headers={
-                            'Content-Type': 'application/json',
-                            'Accept': 'application/json'
-                        },
-                        verify=False
-                    )
-                    st.write(f"Status Code: {resp.status_code}")
-                    try:
-                        st.json(resp.json())
-                    except Exception:
-                        st.write(resp.text)
-            except Exception as e:
-                st.error(f"Error: {e}")
-    else:
-        st.warning("No tools discovered for the selected MCP server.")
-
-elif mode == "Agentic Bedrock Chat":
-    st.subheader("Agentic Bedrock Chat (Claude + MCP)")
-    # Session state for conversation history
-    if "messages" not in st.session_state:
-        st.session_state.messages = []
-    # Display chat history
-    for message in st.session_state.messages:
-        with st.chat_message(message["role"]):
-            st.markdown(message["content"])
-    # User input
-    user_input = st.chat_input("Type your message here...")
-    if user_input:
-        # Add user message to chat history
-        st.session_state.messages.append({"role": "user", "content": user_input})
-        with st.chat_message("user"):
-            st.markdown(user_input)
-        # Call Bedrock with Claude model and MCP tools
-        with st.spinner("Claude is thinking..."):
-            try:
-                # Convert previous messages to the format expected by Bedrock
-                messages_for_model = []
-                for msg in st.session_state.messages:
-                    messages_for_model.append({
-                        "role": msg["role"],
-                        "content": [
-                            {
-                                "text": msg["content"]
-                            }
-                        ]
-                    })
-                # Set inference parameters based on model
-                max_tokens = 4096
-                temperature = 0.7
-                # Create a more MCP-aligned system prompt that focuses on tool discovery
-                system_prompt = [
-                    {"text": "You are a retail assistant that can help customers with their shopping needs. "
-                            "You have access to MCP servers that provide various retail capabilities. "
-                            "Use the available tools to help customers with their requests. "
-                            "You can discover what tools are available and what they can do through their schemas. "
-                            "Respond to customer queries by using the most appropriate tool for each task."}
-                ]
-                # Call the converse API with the selected model
-                response = bedrock_runtime.converse(
-                    modelId=model_id,  # Use the selected model from sidebar
-                    messages=messages_for_model,
-                    system=system_prompt,
-                    inferenceConfig={
-                        "maxTokens": max_tokens,
-                        "temperature": temperature
-                    },
-                    toolConfig=tool_config
-                )
-                # Log the raw response for debugging
-                st.sidebar.write("Initial Response:")
-                st.sidebar.json(response)
-                # Check if the model is requesting to use a tool
-                stop_reason = response.get('stopReason', '')
-                if stop_reason == 'tool_use':
-                    st.sidebar.write("### Tool Use Detected")
-                    # Extract the tool use details
-                    output = response.get('output', {})
-                    message = output.get('message', {})
-                    contents = message.get('content', [])
-                    # Find the toolUse content
-                    tool_use = None
-                    for content in contents:
-                        if 'toolUse' in content:
-                            tool_use = content.get('toolUse', {})
-                            break
-                    if tool_use:
-                        # Extract the tool call details
-                        tool_call = tool_use
-                        tool_use_id = tool_call.get('toolUseId')
-                        tool_name = tool_call.get('name')  # This is the name as it appears in Bedrock's response
-                        tool_input = tool_call.get('input', {})
-                        # Log the tool call details
-                        st.sidebar.write(f"Executing tool: {tool_name}")
-                        st.sidebar.write(f"Tool input: {json.dumps(tool_input)}")
-                        st.sidebar.write(f"Tool input type: {type(tool_input)}")
-                        st.sidebar.write(f"Tool input keys: {list(tool_input.keys())}")
-                        st.sidebar.write(f"Raw tool use object:\n{json.dumps(tool_call, indent=2)}")
-                        # IMPORTANT: Store the original tool name exactly as it appears in Bedrock's response
-                        bedrock_tool_name = tool_name  # Store the original Bedrock tool name without modification
+if user_input:
+    # Add user message to chat history
+    st.session_state.messages.append({"role": "user", "content": user_input})
+    with st.chat_message("user"):
+        st.markdown(user_input)
+    
+    # Call Bedrock with Claude model and MCP tools
+    with st.spinner("Claude is thinking..."):
+        try:
+            # Convert previous messages to the format expected by Bedrock
+            messages_for_model = []
+            for msg in st.session_state.messages:
+                messages_for_model.append({
+                    "role": msg["role"],
+                    "content": [
+                        {
+                            "text": msg["content"]
+                        }
+                    ]
+                })
+            
+            # Set inference parameters based on model
+            max_tokens = 4096
+            temperature = 0.7
+            
+            # Log the tool configuration for debugging
+            st.sidebar.write("Tool Configuration:")
+            st.sidebar.json(tool_config)
+            
+            # Add more detailed system prompt to guide the model on using MCP tools
+            system_prompt = [
+                {"text": "You are a retail assistant that can help customers find products and place orders. "
+                        "You have access to two MCP tools: \n"
+                        "1. product-server: Use this to get product information from the retail catalog\n"
+                        "2. order-server: Use this to place and manage orders for products\n\n"
+                        "When asked about products, ALWAYS use the product-server tool.\n"
+                        "When asked to place orders, ALWAYS use the order-server tool.\n"
+                        "Show your work by explaining what tools you're using and why."}
+            ]
+            
+            # Call the converse API with the selected model
+            response = bedrock_runtime.converse(
+                modelId=model_id,  # Use the selected model from sidebar
+                messages=messages_for_model,
+                system=system_prompt,
+                inferenceConfig={
+                    "maxTokens": max_tokens,
+                    "temperature": temperature
+                },
+                toolConfig=tool_config
+            )
+            
+            # Log the raw response for debugging
+            st.sidebar.write("Initial Response:")
+            st.sidebar.json(response)
+            
+            # Check if the model is requesting to use a tool
+            stop_reason = response.get('stopReason', '')
+            
+            if stop_reason == 'tool_use':
+                st.sidebar.write("Tool use detected - executing tool call...")
+                
+                # Extract the tool use details
+                output = response.get('output', {})
+                message = output.get('message', {})
+                contents = message.get('content', [])
+                
+                # Find the toolUse content
+                tool_use = None
+                for content in contents:
+                    if 'toolUse' in content:
+                        tool_use = content.get('toolUse', {})
+                        break
+                
+                if tool_use:
+                    tool_name = tool_use.get('name', '')
+                    tool_input = tool_use.get('input', {})
+                    tool_use_id = tool_use.get('toolUseId', '')
+                    
+                    st.sidebar.write(f"Executing tool: {tool_name}")
+                    st.sidebar.write(f"Tool input: {json.dumps(tool_input, indent=2)}")
+                    st.sidebar.write(f"Tool input type: {type(tool_input)}")
+                    st.sidebar.write(f"Tool input keys: {list(tool_input.keys()) if isinstance(tool_input, dict) else 'Not a dict'}")
+                    
+                    # Debug the raw tool use object
+                    st.sidebar.write("Raw tool use object:")
+                    st.sidebar.json(tool_use)
+                    
+                    # Execute the tool call to the appropriate MCP server
+                    import requests
+                    
+                    # Determine which MCP server to call based on the tool name
+                    mcp_url = ''
+                    if tool_name == 'product-server':
+                        mcp_url = product_server_url
+                    elif tool_name == 'order-server':
+                        mcp_url = order_server_url
+                    
+                    if mcp_url:
                         try:
-                            # Use the BedrockMcpAdapter to execute the tool call
-                            st.sidebar.write("### Executing MCP Tool Call")
-                            mcp_result = mcp_adapter.execute_tool(bedrock_tool_name, tool_input)
-                            # Log the response for debugging
-                            st.sidebar.write("### MCP Response:")
-                            st.sidebar.json(mcp_result)
-                            # Extract the result content from the MCP response
+                            # Format the request for the MCP server
+                            # The tool name in the MCP server is the method name to call
+                            # The tool name from Bedrock is the name of the MCP server, not the method
+                            
+                            # Determine which method to call based on the tool name and parameters
+                            st.sidebar.write("Determining method name based on:")
+                            st.sidebar.write(f"Tool name: {tool_name}")
+                            st.sidebar.write(f"Tool input keys: {list(tool_input.keys())}")
+                            
+                            # Use direct string comparison for method names
+                            method_name = None
+                            
+                            if tool_name == "product-server":
+                                if 'productId' in tool_input and 'quantity' not in tool_input:
+                                    method_name = "get-product"
+                                    st.sidebar.write("Selected method: get-product (productId present, quantity not present)")
+                                else:
+                                    method_name = "search-products"
+                                    st.sidebar.write("Selected method: search-products")
+                            elif tool_name == "order-server":
+                                if 'orderId' in tool_input:
+                                    method_name = "check-order-status"
+                                    st.sidebar.write("Selected method: check-order-status (orderId present)")
+                                else:
+                                    method_name = "create-order"
+                                    st.sidebar.write("Selected method: create-order")
+                            else:
+                                st.sidebar.error(f"Unknown tool name: {tool_name}")
+                                method_name = "unknown"
+                                
+                            mcp_request = {
+                                "jsonrpc": "2.0",
+                                "method": method_name,
+                                "params": tool_input,
+                                "id": "1"
+                            }
+                            
+                            st.sidebar.write(f"Using method: {method_name}")
+                            
+                            # Make the request to the MCP server
+                            st.sidebar.write(f"Sending request to MCP server: {mcp_url}")
+                            st.sidebar.json(mcp_request)
+                            
+                            # Use verify=False to ignore SSL certificate validation
+                            mcp_response = requests.post(
+                                mcp_url,
+                                json=mcp_request,
+                                headers={
+                                    'Content-Type': 'application/json',
+                                    'Accept': 'application/json, text/event-stream'
+                                },
+                                verify=False  # Ignore SSL certificate validation
+                            )
+                            
+                            # Parse the response - handle both JSON and SSE formats
+                            response_text = mcp_response.text
+                            st.sidebar.write(f"Raw MCP response: {response_text}")
+                            
+                            # Check if the response is in SSE format
+                            if response_text.startswith('event:') or '\ndata:' in response_text:
+                                # Extract the JSON from the SSE format
+                                data_lines = [line for line in response_text.split('\n') if line.startswith('data:')]
+                                if data_lines:
+                                    json_str = data_lines[0][5:]  # Remove 'data:' prefix
+                                    mcp_result = json.loads(json_str)
+                                else:
+                                    mcp_result = {"error": "Could not parse SSE response"}
+                            else:
+                                # Regular JSON response
+                                mcp_result = mcp_response.json()
+                                
+                            st.sidebar.write(f"Parsed MCP response: {json.dumps(mcp_result, indent=2)}")
+                            
+                            # Check for error in response
                             if "error" in mcp_result:
                                 st.sidebar.error(f"MCP server returned an error: {json.dumps(mcp_result['error'], indent=2)}")
-                                result_content = {"error": mcp_result.get('error', {}).get('message', 'Unknown error')}
-                            else:
-                                result_content = mcp_result.get('result', mcp_result)
+                                # Create an error message for the tool result
+                                error_message = mcp_result.get('error', {}).get('message', 'Unknown error')
+                                result = {"error": error_message}
+                                # Continue with this result
+                            
+                            # Extract the result from the MCP response
+                            if "result" in mcp_result:
+                                result = mcp_result["result"]
+                                
+                                # Create the tool result
+                                # If there was an error, include status: error
+                                if "error" in result:
+                                    tool_result = {
+                                        "toolUseId": tool_use_id,
+                                        "content": [{"json": result}],
+                                        "status": "error"
+                                    }
+                                else:
+                                    tool_result = {
+                                        "toolUseId": tool_use_id,
+                                        "content": [{"json": result}]
+                                    }
+                                
+                                # Create a tool result message following AWS documentation pattern
+                                tool_result_message = {
+                                    "role": "user",
+                                    "content": [
+                                        {
+                                            "toolResult": tool_result
+                                        }
+                                    ]
+                                }
+                                
+                                st.sidebar.write("Tool result message:")
+                                st.sidebar.json(tool_result_message)
+                                
+                                # Add the tool result message to the conversation history
+                                messages_for_model.append(tool_result_message)
+                                
+                                # Continue the conversation with the updated messages
+                                response = bedrock_runtime.converse(
+                                    modelId=model_id,
+                                    messages=messages_for_model,
+                                    system=system_prompt,
+                                    inferenceConfig={
+                                        "maxTokens": max_tokens,
+                                        "temperature": temperature
+                                    },
+                                    toolConfig=tool_config
+                                )                      
+                            st.sidebar.write("Final Response:")
+                            st.sidebar.json(response)
                         except Exception as e:
-                            st.sidebar.error(f"Error executing MCP tool: {e}")
-                            result_content = {"error": str(e)}
-                        # Compose the tool result message for Bedrock
-                        tool_result_message = {
-                            "role": "user",
-                            "content": [
-                                {"toolResult": {
-                                    "toolUseId": tool_use_id,
-                                    "content": [{"json": result_content}]
-                                }}
-                            ]
-                        }
-                        # Continue the conversation with the tool result
-                        messages_for_model.append(tool_result_message)
-                        # Call Bedrock again with the updated conversation
-                        response2 = bedrock_runtime.converse(
-                            modelId=model_id,
-                            messages=messages_for_model,
-                            system=system_prompt,
-                            inferenceConfig={
-                                "maxTokens": max_tokens,
-                                "temperature": temperature
-                            },
-                            toolConfig=tool_config
-                        )
-                        st.sidebar.write("Follow-up Response:")
-                        st.sidebar.json(response2)
-                        # Show Claude's answer in chat
-                        output2 = response2.get('output', {})
-                        message2 = output2.get('message', {})
-                        final_text = ""
-                        for content in message2.get('content', []):
-                            if 'text' in content:
-                                final_text += content['text']
-                        if final_text:
-                            st.session_state.messages.append({"role": "assistant", "content": final_text})
-                            with st.chat_message("assistant"):
-                                st.markdown(final_text)
-                    else:
-                        st.warning("No toolUse block found in Bedrock response.")
-                else:
-                    # If Claude just responds with text, show it
-                    output = response.get('output', {})
-                    message = output.get('message', {})
-                    final_text = ""
-                    for content in message.get('content', []):
-                        if 'text' in content:
-                            final_text += content['text']
-                    if final_text:
-                        st.session_state.messages.append({"role": "assistant", "content": final_text})
-                        with st.chat_message("assistant"):
-                            st.markdown(final_text)
-            except Exception as e:
-                st.error(f"Error in Bedrock agentic chat: {e}")
-
-                if tool_use:
-                    # Extract the tool call details
-                    tool_call = tool_use
-                    tool_use_id = tool_call.get('toolUseId')
-                    tool_name = tool_call.get('name')  # This is the name as it appears in Bedrock's response
-                    tool_input = tool_call.get('input', {})
-                    
-                    # Log the tool call details
-                    st.sidebar.write(f"Executing tool: {tool_name}")
-                    st.sidebar.write(f"Tool input: {json.dumps(tool_input)}")
-                    st.sidebar.write(f"Tool input type: {type(tool_input)}")
-                    st.sidebar.write(f"Tool input keys: {list(tool_input.keys())}")
-                    st.sidebar.write(f"Raw tool use object:\n{json.dumps(tool_call, indent=2)}")
-                    
-                    # IMPORTANT: Store the original tool name exactly as it appears in Bedrock's response
-                    # We must use this exact same name when sending the result back
-                    bedrock_tool_name = tool_name  # Store the original Bedrock tool name without modification
-                    
-                    try:
-                        # Use the BedrockMcpAdapter to execute the tool call
-                        st.sidebar.write("### Executing MCP Tool Call")
-                        mcp_result = mcp_adapter.execute_tool(bedrock_tool_name, tool_input)
-                        
-                        # Log the response for debugging
-                        st.sidebar.write("### MCP Response:")
-                        st.sidebar.json(mcp_result)
-                        
-                        # Extract the result content from the MCP response
-                        if "error" in mcp_result:
-                            st.sidebar.error(f"MCP server returned an error: {json.dumps(mcp_result['error'], indent=2)}")
-                            result_content = {"error": mcp_result.get('error', {}).get('message', 'Unknown error')}
-                        elif "result" in mcp_result:
-                            result_content = mcp_result["result"]
-                        else:
-                            result_content = {"message": "Unexpected response format from MCP server"}
-                        
-                        # FINAL SOLUTION: Follow the exact AWS documentation pattern
-                        # According to AWS docs, we need to construct a conversation with:
-                        # 1. Original user message
-                        # 2. Assistant's tool use message (from Bedrock response)
-                        # 3. User's tool result message (what we're constructing now)
-                        
-                        # First, extract the original user message from the conversation history
-                        original_user_message = None
-                        for msg in messages_for_model:
-                            if msg["role"] == "user":
-                                original_user_message = msg
-                                break
-                        
-                        if not original_user_message:
-                            # Create a default user message if none exists
-                            original_user_message = {
-                                "role": "user",
-                                "content": [{"text": "Show me product information"}]
-                            }
-                        
-                        # Now construct the assistant's message with the tool use exactly as Bedrock sent it
-                        assistant_message = {
-                            "role": "assistant",
-                            "content": [
-                                {"toolUse": {
-                                    "toolUseId": tool_use_id,
-                                    "name": bedrock_tool_name,  # Use the EXACT name from Bedrock
-                                    "input": tool_input
-                                }}
-                            ]
-                        }
-                        
-                        # Finally, construct the user's message with the tool result
-                        tool_result_message = {
-                            "role": "user",
-                            "content": [
-                                {"toolResult": {
-                                    "toolUseId": tool_use_id,
-                                    "content": [{"json": result_content}]
-                                }}
-                            ]
-                        }
-                        
-                        # Create the conversation with exactly these three messages in order
-                        conversation = [
-                            original_user_message,
-                            assistant_message,
-                            tool_result_message
-                        ]
-                        
-                        # Log the conversation for debugging
-                        st.sidebar.write("Final conversation structure:")
-                        st.sidebar.json(conversation)
-                        
-                        # Log the conversation for debugging
-                        st.sidebar.write("MCP Tool Result Conversation:")
-                        st.sidebar.json(conversation)
-                        
-                        # Continue the conversation with the tool result
-                        response = bedrock_runtime.converse(
-                            modelId=model_id,
-                            messages=conversation,
-                            system=system_prompt,
-                            inferenceConfig={
-                                "maxTokens": max_tokens,
-                                "temperature": temperature
-                            },
-                            toolConfig=tool_config
-                        )                      
-                        st.sidebar.write("Final Response:")
-                        st.sidebar.json(response)
-                    except Exception as e:
-                        st.sidebar.error(f"Error executing tool call: {str(e)}")
-                        import traceback
-                        st.sidebar.code(traceback.format_exc())
+                            st.sidebar.error(f"Error executing tool call: {str(e)}")
+                            import traceback
+                            st.sidebar.code(traceback.format_exc())
             
             # Process the response from the Bedrock Converse API
             assistant_response = ""

@@ -50,7 +50,7 @@ class BedrockMcpAdapter:
                 json=list_request,
                 headers={
                     'Content-Type': 'application/json',
-                    'Accept': 'application/json'
+                    'Accept': 'application/json, text/event-stream'  # ADD THIS
                 },
                 verify=False  # For development only
             )

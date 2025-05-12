@@ -3,7 +3,7 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import mcpServer from "./mcp-server.js";
 import mcpErrors from "./mcp-errors.js";
 
-const MCP_PATH = "/mcp";
+const MCP_PATH = "/order-mcp";  // CHANGED FROM "/mcp" to "/order-mcp"
 
 const l = log4js.getLogger();
 

@@ -92,6 +92,9 @@ st.sidebar.json(tool_config)
 st.title("Retail MCP Demo with Amazon Bedrock")
 st.subheader("Ask about products or place an order")
 
+# Add mode selection - THIS WAS MISSING
+mode = st.radio("Select Mode", ["Manual MCP Tool Tester", "Agentic Bedrock Chat"])
+
 # Session state for conversation history
 if "messages" not in st.session_state:
     st.session_state.messages = []
@@ -105,12 +108,27 @@ if mode == "Manual MCP Tool Tester":
     st.subheader("MCP Tool Tester (Bypass Bedrock)")
     # Let user choose MCP server
     tool_server = st.selectbox("Select MCP Server", ["product-server", "order-server"])
+    
     if tool_server == "product-server":
         mcp_url = product_server_url
-        available_tools = mcp_adapter.get_tools_for_server("product-server")
+        try:
+            available_tools = mcp_adapter.get_tools_for_server("product-server")
+        except AttributeError:
+            # Fall back if the method doesn't exist
+            available_tools = []
+            for name, mapping in mcp_adapter._name_mapping.items():
+                if mapping['server'] == 'product-server':
+                    available_tools.append({'name': mapping['method']})
     elif tool_server == "order-server":
         mcp_url = order_server_url
-        available_tools = mcp_adapter.get_tools_for_server("order-server")
+        try:
+            available_tools = mcp_adapter.get_tools_for_server("order-server")
+        except AttributeError:
+            # Fall back if the method doesn't exist
+            available_tools = []
+            for name, mapping in mcp_adapter._name_mapping.items():
+                if mapping['server'] == 'order-server':
+                    available_tools.append({'name': mapping['method']})
     else:
         mcp_url = product_server_url
         available_tools = []
@@ -307,182 +325,30 @@ elif mode == "Agentic Bedrock Chat":
                         with st.chat_message("assistant"):
                             st.markdown(final_text)
             except Exception as e:
-                st.error(f"Error in Bedrock agentic chat: {e}")
-
-                if tool_use:
-                    # Extract the tool call details
-                    tool_call = tool_use
-                    tool_use_id = tool_call.get('toolUseId')
-                    tool_name = tool_call.get('name')  # This is the name as it appears in Bedrock's response
-                    tool_input = tool_call.get('input', {})
-                    
-                    # Log the tool call details
-                    st.sidebar.write(f"Executing tool: {tool_name}")
-                    st.sidebar.write(f"Tool input: {json.dumps(tool_input)}")
-                    st.sidebar.write(f"Tool input type: {type(tool_input)}")
-                    st.sidebar.write(f"Tool input keys: {list(tool_input.keys())}")
-                    st.sidebar.write(f"Raw tool use object:\n{json.dumps(tool_call, indent=2)}")
-                    
-                    # IMPORTANT: Store the original tool name exactly as it appears in Bedrock's response
-                    # We must use this exact same name when sending the result back
-                    bedrock_tool_name = tool_name  # Store the original Bedrock tool name without modification
-                    
-                    try:
-                        # Use the BedrockMcpAdapter to execute the tool call
-                        st.sidebar.write("### Executing MCP Tool Call")
-                        mcp_result = mcp_adapter.execute_tool(bedrock_tool_name, tool_input)
-                        
-                        # Log the response for debugging
-                        st.sidebar.write("### MCP Response:")
-                        st.sidebar.json(mcp_result)
-                        
-                        # Extract the result content from the MCP response
-                        if "error" in mcp_result:
-                            st.sidebar.error(f"MCP server returned an error: {json.dumps(mcp_result['error'], indent=2)}")
-                            result_content = {"error": mcp_result.get('error', {}).get('message', 'Unknown error')}
-                        elif "result" in mcp_result:
-                            result_content = mcp_result["result"]
-                        else:
-                            result_content = {"message": "Unexpected response format from MCP server"}
-                        
-                        # FINAL SOLUTION: Follow the exact AWS documentation pattern
-                        # According to AWS docs, we need to construct a conversation with:
-                        # 1. Original user message
-                        # 2. Assistant's tool use message (from Bedrock response)
-                        # 3. User's tool result message (what we're constructing now)
-                        
-                        # First, extract the original user message from the conversation history
-                        original_user_message = None
-                        for msg in messages_for_model:
-                            if msg["role"] == "user":
-                                original_user_message = msg
-                                break
-                        
-                        if not original_user_message:
-                            # Create a default user message if none exists
-                            original_user_message = {
-                                "role": "user",
-                                "content": [{"text": "Show me product information"}]
-                            }
-                        
-                        # Now construct the assistant's message with the tool use exactly as Bedrock sent it
-                        assistant_message = {
-                            "role": "assistant",
-                            "content": [
-                                {"toolUse": {
-                                    "toolUseId": tool_use_id,
-                                    "name": bedrock_tool_name,  # Use the EXACT name from Bedrock
-                                    "input": tool_input
-                                }}
-                            ]
-                        }
-                        
-                        # Finally, construct the user's message with the tool result
-                        tool_result_message = {
-                            "role": "user",
-                            "content": [
-                                {"toolResult": {
-                                    "toolUseId": tool_use_id,
-                                    "content": [{"json": result_content}]
-                                }}
-                            ]
-                        }
-                        
-                        # Create the conversation with exactly these three messages in order
-                        conversation = [
-                            original_user_message,
-                            assistant_message,
-                            tool_result_message
-                        ]
-                        
-                        # Log the conversation for debugging
-                        st.sidebar.write("Final conversation structure:")
-                        st.sidebar.json(conversation)
-                        
-                        # Log the conversation for debugging
-                        st.sidebar.write("MCP Tool Result Conversation:")
-                        st.sidebar.json(conversation)
-                        
-                        # Continue the conversation with the tool result
-                        response = bedrock_runtime.converse(
-                            modelId=model_id,
-                            messages=conversation,
-                            system=system_prompt,
-                            inferenceConfig={
-                                "maxTokens": max_tokens,
-                                "temperature": temperature
-                            },
-                            toolConfig=tool_config
-                        )                      
-                        st.sidebar.write("Final Response:")
-                        st.sidebar.json(response)
-                    except Exception as e:
-                        st.sidebar.error(f"Error executing tool call: {str(e)}")
-                        import traceback
-                        st.sidebar.code(traceback.format_exc())
-            
-            # Process the response from the Bedrock Converse API
-            assistant_response = ""
-            tool_usage = ""
-            
-            # Extract the content from the response
-            output = response.get('output', {})
-            message = output.get('message', {})
-            contents = message.get('content', [])
-            
-            for content in contents:
-                if 'text' in content:
-                    assistant_response += content.get('text', '')
-                elif 'toolUse' in content:
-                    tool_use = content.get('toolUse', {})
-                    tool_name = tool_use.get('name', 'unknown')
-                    tool_input = json.dumps(tool_use.get('input', {}), indent=2)
-                    tool_usage += f"\n\n**Tool Used: {tool_name}**\n```json\n{tool_input}\n```\n"
-                elif 'toolResult' in content:
-                    tool_result = content.get('toolResult', {})
-                    result_content = tool_result.get('content', [])
-                    result_text = ''
-                    for item in result_content:
-                        if 'json' in item:
-                            result_text = json.dumps(item.get('json', {}), indent=2)
-                        elif 'text' in item:
-                            result_text = item.get('text', '')
-                    tool_usage += f"\n**Tool Result:**\n```json\n{result_text}\n```\n"
-            
-            # Add tool usage information if any tools were used
-            if tool_usage:
-                assistant_response += "\n\n---\n" + tool_usage
-            
-            # Add assistant response to chat history
-            st.session_state.messages.append({"role": "assistant", "content": assistant_response})
-            with st.chat_message("assistant"):
-                st.markdown(assistant_response)
+                import traceback
+                error_details = traceback.format_exc()
                 
-        except Exception as e:
-            import traceback
-            error_details = traceback.format_exc()
-            
-            # Create a more detailed error message
-            error_message = f"Error: {str(e)}"
-            st.error(error_message)
-            
-            # Log detailed error information in the sidebar for debugging
-            st.sidebar.write("Error Details:")
-            st.sidebar.code(error_details)
-            
-            # Try to extract more information about the error
-            if "SSL" in str(e) or "certificate" in str(e):
-                st.sidebar.warning("SSL Certificate Error: The Bedrock service is having trouble with the MCP server's SSL certificate.")
-                st.sidebar.info("Possible solutions: Use properly signed certificates for your MCP servers or configure Bedrock to accept self-signed certificates.")
-            elif "timeout" in str(e).lower():
-                st.sidebar.warning("Timeout Error: The request to the MCP server timed out.")
-                st.sidebar.info("Possible solutions: Check network connectivity, increase timeout settings, or verify the MCP server is responding quickly enough.")
-            elif "connect" in str(e).lower():
-                st.sidebar.warning("Connection Error: Could not connect to the MCP server.")
-                st.sidebar.info("Possible solutions: Verify the MCP server URL is correct and the server is running. Check network connectivity and security group settings.")
-            
-            # Add the error message to the chat history
-            st.session_state.messages.append({"role": "assistant", "content": error_message})
+                # Create a more detailed error message
+                error_message = f"Error: {str(e)}"
+                st.error(error_message)
+                
+                # Log detailed error information in the sidebar for debugging
+                st.sidebar.write("Error Details:")
+                st.sidebar.code(error_details)
+                
+                # Try to extract more information about the error
+                if "SSL" in str(e) or "certificate" in str(e):
+                    st.sidebar.warning("SSL Certificate Error: The Bedrock service is having trouble with the MCP server's SSL certificate.")
+                    st.sidebar.info("Possible solutions: Use properly signed certificates for your MCP servers or configure Bedrock to accept self-signed certificates.")
+                elif "timeout" in str(e).lower():
+                    st.sidebar.warning("Timeout Error: The request to the MCP server timed out.")
+                    st.sidebar.info("Possible solutions: Check network connectivity, increase timeout settings, or verify the MCP server is responding quickly enough.")
+                elif "connect" in str(e).lower():
+                    st.sidebar.warning("Connection Error: Could not connect to the MCP server.")
+                    st.sidebar.info("Possible solutions: Verify the MCP server URL is correct and the server is running. Check network connectivity and security group settings.")
+                
+                # Add the error message to the chat history
+                st.session_state.messages.append({"role": "assistant", "content": error_message})
 
 # Display commit ID in bottom right corner
 st.markdown(f"<div style='position: fixed; right: 10px; bottom: 10px; font-size: 12px; color: gray;'>Version: {commit_id}</div>", unsafe_allow_html=True)

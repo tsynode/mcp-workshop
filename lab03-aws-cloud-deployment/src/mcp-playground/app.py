@@ -69,6 +69,10 @@ if 'tool_mapping' not in st.session_state:
 if 'reset_form' not in st.session_state:
     st.session_state.reset_form = False
 
+# Flag to indicate we're in the middle of processing tools
+if 'processing_tools' not in st.session_state:
+    st.session_state.processing_tools = False
+
 # Helper function to run async code safely in Streamlit
 def run_async(coro):
     """Run an async function from sync code safely"""
@@ -312,6 +316,113 @@ def get_bedrock_tool_config() -> Dict:
     logger.info(f"Generated Bedrock tool config with {len(tool_specs)} tools")
     return {"tools": tool_specs}
 
+# ------------------------------------------------
+# PROCESS ALL PENDING TOOL CALLS
+# ------------------------------------------------
+
+def process_pending_tool_uses():
+    """
+    Process all pending tool uses from the conversation manager.
+    This is a critical function that ensures all tools are executed
+    before allowing the user to continue.
+    """
+    conversation_manager = st.session_state.conversation_manager
+    st.session_state.processing_tools = True
+    
+    # Continue processing tool uses until there are none left or we hit an error
+    while conversation_manager.has_pending_tool_uses():
+        # Get the next tool use from the pending set (we don't know the order, so just take one)
+        tool_use_id = next(iter(conversation_manager.pending_tool_uses))
+        tool_use = conversation_manager.get_tool_use(tool_use_id)
+        
+        if not tool_use:
+            logger.error(f"No tool use found for ID {tool_use_id}")
+            break
+        
+        tool_name = tool_use.get("name")
+        tool_input = tool_use.get("input", {})
+        
+        logger.info(f"Processing pending tool: {tool_name} (ID: {tool_use_id})")
+        
+        with st.status(f"Executing tool {tool_name}...", expanded=False) as status:
+            # Execute the tool
+            tool_result = call_tool(tool_name, tool_input)
+            
+            # Add the result to the conversation
+            result_message = conversation_manager.add_tool_result(tool_use_id, tool_result)
+            
+            if result_message is None:
+                logger.error(f"Failed to add tool result for {tool_use_id}")
+                status.update(label=f"Error executing {tool_name}", state="error")
+                break
+            
+            status.update(label=f"Completed {tool_name}", state="complete")
+            
+    # If we've processed all tool uses but still have the processing flag set,
+    # we might need an additional Bedrock call to continue the conversation
+    if not conversation_manager.has_pending_tool_uses() and conversation_manager.is_processing_tools():
+        # Make another call to Bedrock with the updated messages including all tool results
+        with st.spinner("Processing tool results..."):
+            try:
+                messages = conversation_manager.get_bedrock_messages()
+                
+                # Log the updated messages
+                logger.info("Sending messages with all tool results to Bedrock:")
+                for i, msg in enumerate(messages):
+                    logger.info(f"Message {i}: {json.dumps(msg)}")
+                
+                # Prepare system prompt
+                system_prompt = [
+                    {"text": "You are a helpful assistant with access to MCP servers for retail operations. "
+                            "You can get product information and manage orders using the available tools. "
+                            "Use the tools when appropriate to help the user."}
+                ]
+                
+                # Set inference parameters
+                max_tokens = 4096
+                temperature = 0.7
+                
+                # Call Bedrock with all tool results
+                response = bedrock_runtime.converse(
+                    modelId=st.session_state.model_id,
+                    messages=messages,
+                    system=system_prompt,
+                    inferenceConfig={
+                        "maxTokens": max_tokens,
+                        "temperature": temperature
+                    },
+                    toolConfig=tool_config
+                )
+                
+                # Process the response
+                logger.info(f"Bedrock continuation response: {json.dumps(response, default=str)}")
+                result = conversation_manager.process_bedrock_response(response)
+                
+                # If there's text content, show it
+                if result["text"]:
+                    with st.chat_message("assistant"):
+                        st.markdown(result["text"])
+                
+                # If there are new tool uses, we'll process them in the next iteration
+                if result["tool_uses"]:
+                    # Recursively process any new tool uses that were generated
+                    process_pending_tool_uses()
+                else:
+                    # No more tool uses, clear the processing flag
+                    st.session_state.processing_tools = False
+                    conversation_manager.clear_pending_flags()
+                    
+            except Exception as e:
+                logger.error(f"Error processing tool results: {e}")
+                logger.error(traceback.format_exc())
+                st.error(f"Error: {str(e)}")
+                st.session_state.processing_tools = False
+                conversation_manager.clear_pending_flags()
+                st.session_state.conversation_error = True
+    else:
+        # No more tool uses or we hit an error
+        st.session_state.processing_tools = False
+
 # Form reset callback
 def reset_form():
     st.session_state.reset_form = True
@@ -328,6 +439,9 @@ model_id = st.sidebar.selectbox(
     ["anthropic.claude-3-sonnet-20240229-v1:0", "anthropic.claude-3-haiku-20240307-v1:0", "anthropic.claude-3-5-sonnet-20240620-v1:0", "anthropic.claude-3-7-sonnet-20250219-v1:0"],
     index=1  # Default to Claude 3 Haiku
 )
+
+# Store the model ID in session state
+st.session_state.model_id = model_id
 
 # Display built-in MCP servers
 st.sidebar.title("Built-in MCP Servers")
@@ -489,6 +603,7 @@ if 'previous_mode' not in st.session_state:
 if st.session_state.previous_mode != mode:
     st.session_state.conversation_manager.reset()
     st.session_state.conversation_error = False
+    st.session_state.processing_tools = False
     st.session_state.previous_mode = mode
 
 if mode == "Manual MCP Tool Tester":
@@ -561,6 +676,11 @@ elif mode == "Agentic Bedrock Chat":
         4. Make sure you've provided authentication tokens if required
         """)
     else:
+        # Process any pending tool uses from previous iterations
+        if st.session_state.conversation_manager.has_pending_tool_uses() or st.session_state.processing_tools:
+            with st.spinner("Processing pending tool uses..."):
+                process_pending_tool_uses()
+                
         # Display chat history
         for message in st.session_state.conversation_manager.messages:
             role = message.get("role", "")
@@ -580,160 +700,100 @@ elif mode == "Agentic Bedrock Chat":
                 with st.chat_message(role):
                     st.markdown(content)
         
-        # Chat input
-        user_input = st.chat_input("Type your message here...")
-        if user_input:
-            # Reset if previous error occurred
-            if st.session_state.conversation_error:
-                st.session_state.conversation_manager.reset()
-                st.session_state.conversation_error = False
-                st.info("Previous conversation had errors and was reset.")
-            
-            # Add to conversation history
-            st.session_state.conversation_manager.add_user_message(user_input)
-            
-            # Debug: List all available tools
-            all_tools = list(st.session_state.tool_mapping.keys())
-            logger.info(f"Available tools for this conversation: {all_tools}")
-            st.sidebar.info(f"Tools available: {len(all_tools)}")
-            
-            # Show in chat UI
-            with st.chat_message("user"):
-                st.markdown(user_input)
-            
-            # Process with Bedrock
-            with st.spinner("Claude is thinking..."):
-                try:
-                    # Get messages for Bedrock
-                    messages = st.session_state.conversation_manager.get_bedrock_messages()
-                    
-                    # Validate the message flow
-                    errors = st.session_state.conversation_manager.validate_message_flow()
-                    if errors:
-                        st.error("Invalid conversation flow detected. Resetting conversation.")
-                        st.session_state.conversation_manager.reset()
-                        st.session_state.conversation_manager.add_user_message(user_input)
+        # Chat input - only show if we're not processing tools
+        if not st.session_state.conversation_manager.has_pending_tool_uses() and not st.session_state.processing_tools:
+            user_input = st.chat_input("Type your message here...")
+            if user_input:
+                # Reset if previous error occurred
+                if st.session_state.conversation_error:
+                    st.session_state.conversation_manager.reset()
+                    st.session_state.conversation_error = False
+                    st.info("Previous conversation had errors and was reset.")
+                
+                # Add to conversation history
+                st.session_state.conversation_manager.add_user_message(user_input)
+                
+                # Debug: List all available tools
+                all_tools = list(st.session_state.tool_mapping.keys())
+                logger.info(f"Available tools for this conversation: {all_tools}")
+                st.sidebar.info(f"Tools available: {len(all_tools)}")
+                
+                # Show in chat UI
+                with st.chat_message("user"):
+                    st.markdown(user_input)
+                
+                # Process with Bedrock
+                with st.spinner("Claude is thinking..."):
+                    try:
+                        # Get messages for Bedrock
                         messages = st.session_state.conversation_manager.get_bedrock_messages()
-                    
-                    # Log the messages being sent to Bedrock for debugging
-                    logger.info("Sending messages to Bedrock:")
-                    for i, msg in enumerate(messages):
-                        logger.info(f"Message {i}: {json.dumps(msg)}")
-                    
-                    # Create system prompt
-                    system_prompt = [
-                        {"text": "You are a helpful assistant with access to MCP servers for retail operations. "
-                                "You can get product information and manage orders using the available tools. "
-                                "Use the tools when appropriate to help the user."}
-                    ]
-                    
-                    # Set inference parameters
-                    max_tokens = 4096
-                    temperature = 0.7
-                    
-                    # Call Bedrock
-                    logger.info(f"Calling Bedrock converse with model={model_id} and {len(messages)} messages")
-                    response = bedrock_runtime.converse(
-                        modelId=model_id,
-                        messages=messages,
-                        system=system_prompt,
-                        inferenceConfig={
-                            "maxTokens": max_tokens,
-                            "temperature": temperature
-                        },
-                        toolConfig=tool_config
-                    )
-                    
-                    # Log the Bedrock response for debugging 
-                    logger.info(f"Bedrock response: {json.dumps(response, default=str)}")
-                    
-                    # Process the response
-                    result = st.session_state.conversation_manager.process_bedrock_response(response)
-                    logger.info(f"Processed Bedrock response: {json.dumps(result, default=str)}")
-                    
-                    # If there's text content, show it
-                    if result["text"]:
-                        with st.chat_message("assistant"):
-                            st.markdown(result["text"])
-                    
-                    # If there are tool uses, process them
-                    tool_failures = 0
-                    if result["tool_uses"]:
-                        with st.status("Executing tools...", expanded=False) as status:
-                            for tool_use in result["tool_uses"]:
-                                tool_use_id = tool_use.get("toolUseId")
-                                tool_name = tool_use.get("name")
-                                tool_input = tool_use.get("input", {})
-                                
-                                logger.info(f"Executing tool: {tool_name} (ID: {tool_use_id}) with input: {json.dumps(tool_input)}")
-                                status.update(label=f"Executing {tool_name}...", state="running")
-                                
-                                # Call the tool
-                                tool_result = call_tool(tool_name, tool_input)
-                                logger.info(f"Tool execution result: {json.dumps(tool_result)}")
-                                
-                                # Add result to conversation - check if successful
-                                result_message = st.session_state.conversation_manager.add_tool_result(tool_use_id, tool_result)
-                                if result_message is None:
-                                    tool_failures += 1
-                                    logger.warning(f"Failed to add tool result for {tool_use_id}")
-                                
-                                status.update(label=f"Tool {tool_name} executed", state="running")
-                            
-                            status.update(label=f"All tools executed ({tool_failures} failures)", state="complete")
                         
-                        # Check if we had any successful tool results
-                        if tool_failures < len(result["tool_uses"]):
-                            # Continue the conversation with tool results
-                            with st.spinner("Processing tool results..."):
-                                # Get updated messages with tool results
-                                messages = st.session_state.conversation_manager.get_bedrock_messages()
-                                
-                                # Validate again before sending back to Bedrock
-                                errors = st.session_state.conversation_manager.validate_message_flow() 
-                                if errors:
-                                    st.error("Invalid conversation flow after tool execution. Skipping response processing.")
-                                    st.session_state.conversation_error = True
-                                else:
-                                    # Log the updated messages for debugging
-                                    logger.info("Sending messages with tool results to Bedrock:")
-                                    for i, msg in enumerate(messages):
-                                        logger.info(f"Message {i}: {json.dumps(msg)}")
-                                    
-                                    # Call Bedrock again
-                                    logger.info(f"Calling Bedrock converse again with tool results")
-                                    response2 = bedrock_runtime.converse(
-                                        modelId=model_id,
-                                        messages=messages,
-                                        system=system_prompt,
-                                        inferenceConfig={
-                                            "maxTokens": max_tokens,
-                                            "temperature": temperature
-                                        },
-                                        toolConfig=tool_config
-                                    )
-                                    
-                                    # Log the second Bedrock response
-                                    logger.info(f"Second Bedrock response: {json.dumps(response2, default=str)}")
-                                    
-                                    # Process the response
-                                    result2 = st.session_state.conversation_manager.process_bedrock_response(response2)
-                                    
-                                    # Show the final response
-                                    if result2["text"]:
-                                        with st.chat_message("assistant"):
-                                            st.markdown(result2["text"])
-                    
-                except Exception as e:
-                    st.error(f"Error: {str(e)}")
-                    st.sidebar.error(f"Detailed error: {str(e)}")
-                    
-                    logger.error(f"Bedrock API error: {e}")
-                    logger.error(traceback.format_exc())
-                    st.sidebar.code(traceback.format_exc())
-                    
-                    # Mark conversation as having an error
-                    st.session_state.conversation_error = True
+                        # Log the messages being sent to Bedrock for debugging
+                        logger.info("Sending messages to Bedrock:")
+                        for i, msg in enumerate(messages):
+                            logger.info(f"Message {i}: {json.dumps(msg)}")
+                        
+                        # Create system prompt
+                        system_prompt = [
+                            {"text": "You are a helpful assistant with access to MCP servers for retail operations. "
+                                    "You can get product information and manage orders using the available tools. "
+                                    "Use the tools when appropriate to help the user."}
+                        ]
+                        
+                        # Set inference parameters
+                        max_tokens = 4096
+                        temperature = 0.7
+                        
+                        # Call Bedrock
+                        logger.info(f"Calling Bedrock converse with model={model_id} and {len(messages)} messages")
+                        response = bedrock_runtime.converse(
+                            modelId=model_id,
+                            messages=messages,
+                            system=system_prompt,
+                            inferenceConfig={
+                                "maxTokens": max_tokens,
+                                "temperature": temperature
+                            },
+                            toolConfig=tool_config
+                        )
+                        
+                        # Log the Bedrock response for debugging 
+                        logger.info(f"Bedrock response: {json.dumps(response, default=str)}")
+                        
+                        # Process the response
+                        result = st.session_state.conversation_manager.process_bedrock_response(response)
+                        logger.info(f"Processed Bedrock response: {json.dumps(result, default=str)}")
+                        
+                        # If there's text content, show it
+                        if result["text"]:
+                            with st.chat_message("assistant"):
+                                st.markdown(result["text"])
+                        
+                        # If there are tool uses, start the processing sequence
+                        if result["tool_uses"]:
+                            st.session_state.processing_tools = True
+                            # Trigger a rerun to start processing tools
+                            st.rerun()
+                        
+                    except Exception as e:
+                        st.error(f"Error: {str(e)}")
+                        st.sidebar.error(f"Detailed error: {str(e)}")
+                        
+                        logger.error(f"Bedrock API error: {e}")
+                        logger.error(traceback.format_exc())
+                        st.sidebar.code(traceback.format_exc())
+                        
+                        # Mark conversation as having an error
+                        st.session_state.conversation_error = True
+        else:
+            # We're processing tools, show a message
+            st.info("Processing tools... Please wait.")
+            
+            # Process all pending tool uses
+            process_pending_tool_uses()
+            
+            # Trigger rerun to update the UI
+            st.rerun()
 
 # Display commit ID
 st.markdown(f"<div style='position: fixed; right: 10px; bottom: 10px; font-size: 12px; color: gray;'>Version: {commit_id}</div>", unsafe_allow_html=True)

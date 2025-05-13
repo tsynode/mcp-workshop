@@ -23,6 +23,7 @@ class ConversationManager:
         self.tool_calls = {}  # Map of tool_use_id to tool call details
         self.pending_tool_uses = set()  # Set of tool_use_ids that need results
         self.used_tool_results = set()  # Track which tool results have been used
+        self.pending_processing = False  # Flag to indicate if we're in the middle of processing tools
         logger.debug("ConversationManager initialized")
     
     def add_user_message(self, content: str) -> Dict[str, Any]:
@@ -35,6 +36,11 @@ class ConversationManager:
         Returns:
             The created message object
         """
+        # Don't add new user messages if we're still processing tool calls
+        if self.pending_processing or self.has_pending_tool_uses():
+            logger.warning("Attempted to add user message while tool processing is pending")
+            return None
+            
         message = {
             "role": "user",
             "content": [
@@ -94,10 +100,15 @@ class ConversationManager:
             message = response["output"]["message"]
             logger.debug(f"Found output message with content length: {len(message.get('content', []))}")
             
-            # Process each content block
-            for content in message.get("content", []):
+            content_blocks = message.get("content", [])
+            tool_use_blocks = []
+            text_blocks = []
+            
+            # First pass - separate text and toolUse blocks
+            for content in content_blocks:
                 if "text" in content:
                     result["text"] += content["text"]
+                    text_blocks.append(content)
                     logger.debug(f"Found text content: {content['text'][:50]}...")
                 elif "toolUse" in content:
                     tool_use = content["toolUse"]
@@ -108,14 +119,18 @@ class ConversationManager:
                     # Track this tool use
                     self.tool_calls[tool_use_id] = tool_use
                     self.pending_tool_uses.add(tool_use_id)
+                    tool_use_blocks.append(content)
                     result["tool_uses"].append(tool_use)
             
-            # Create assistant message if there's text content or toolUse
-            # This is a critical change: preserve the entire content array, which may include both text and toolUse
-            if message.get("content"):
+            # If we have any tool uses, set the processing flag
+            if tool_use_blocks:
+                self.pending_processing = True
+                
+            # Add the message with all content (text and toolUse blocks)
+            if content_blocks:
                 self.messages.append({
                     "role": "assistant",
-                    "content": message.get("content", [])
+                    "content": content_blocks
                 })
         
         # Log the overall status
@@ -201,6 +216,11 @@ class ConversationManager:
             self.pending_tool_uses.remove(tool_use_id)
             logger.debug(f"Removed {tool_use_id} from pending tool uses. Remaining: {len(self.pending_tool_uses)}")
         
+        # If we've processed all pending tool uses, clear the processing flag
+        if not self.pending_tool_uses:
+            self.pending_processing = False
+            logger.debug("All tool uses processed, clearing pending processing flag")
+            
         return tool_result_message
     
     def get_bedrock_messages(self) -> List[Dict[str, Any]]:
@@ -249,6 +269,11 @@ class ConversationManager:
         if has_errors:
             logger.warning("Messages contain errors - see logs above")
         
+        # Check if we're sending messages with pending tool uses
+        if self.validate_message_flow():
+            # If validation detected issues, we need to ensure we have a clean message set
+            self._repair_message_sequence()
+        
         return self.messages
     
     def get_tool_use(self, tool_use_id: str) -> Dict[str, Any]:
@@ -271,6 +296,15 @@ class ConversationManager:
             True if there are pending tool uses, False otherwise
         """
         return len(self.pending_tool_uses) > 0
+    
+    def is_processing_tools(self) -> bool:
+        """
+        Check if we're currently processing tool uses.
+        
+        Returns:
+            True if we're processing tool uses, False otherwise
+        """
+        return self.pending_processing
     
     def validate_message_flow(self) -> List[str]:
         """
@@ -307,11 +341,16 @@ class ConversationManager:
                 if use_idx >= result_idx:
                     errors.append(f"Message {result_idx} has toolResult for ID {tool_use_id} but toolUse appears after it at message {use_idx}")
         
-        # Third pass - check if all toolUse have matching toolResult
+        # Third pass - check if all toolUse have matching toolResult except for the most recent assistant message
+        latest_assistant_idx = -1
+        for i, msg in enumerate(self.messages):
+            if msg.get('role') == 'assistant':
+                latest_assistant_idx = i
+        
         for tool_use_id, use_idx in tool_uses.items():
             if tool_use_id not in tool_results:
-                # This is actually ok if it's the most recent assistant message
-                if use_idx != max(idx for idx, msg in enumerate(self.messages) if msg.get('role') == 'assistant'):
+                # This is actually ok if it's in the most recent assistant message
+                if use_idx != latest_assistant_idx:
                     errors.append(f"Message {use_idx} has toolUse for ID {tool_use_id} but no matching toolResult exists")
         
         if errors:
@@ -322,6 +361,63 @@ class ConversationManager:
             logger.debug("Message flow validation passed")
             
         return errors
+    
+    def _repair_message_sequence(self):
+        """
+        Attempt to repair the message sequence if it's broken.
+        This is a last resort to make the conversation valid for Bedrock.
+        """
+        # If we have a toolUse without a toolResult, we need to clean it up
+        # This is used only in extreme cases where we want to make a clean state
+        
+        tool_uses = {}  # Map of tool_use_id to (message_idx, content_idx)
+        
+        # Find all tool uses
+        for msg_idx, msg in enumerate(self.messages):
+            if msg.get('role') == 'assistant':
+                for content_idx, content_item in enumerate(msg.get('content', [])):
+                    if isinstance(content_item, dict) and "toolUse" in content_item:
+                        tool_use_id = content_item["toolUse"].get("toolUseId")
+                        if tool_use_id:
+                            tool_uses[tool_use_id] = (msg_idx, content_idx)
+        
+        # Find the most recent assistant message
+        latest_assistant_idx = -1
+        for i, msg in enumerate(self.messages):
+            if msg.get('role') == 'assistant':
+                latest_assistant_idx = i
+        
+        # If we have a most recent assistant message with tool uses, we need to ensure
+        # we don't have any other messages after it until the tool uses are handled
+        if latest_assistant_idx >= 0:
+            # If there are any messages after the latest assistant message that aren't tool results
+            has_non_tool_result = False
+            for i in range(latest_assistant_idx + 1, len(self.messages)):
+                msg = self.messages[i]
+                if msg.get('role') == 'user':
+                    if not any('toolResult' in c for c in msg.get('content', [])):
+                        has_non_tool_result = True
+                        break
+            
+            # If we found a non-tool result after the assistant message, trim the messages to that point
+            if has_non_tool_result:
+                logger.warning(f"Found non-tool result messages after assistant message with tool uses, truncating at {latest_assistant_idx + 1}")
+                self.messages = self.messages[:latest_assistant_idx + 1]
+                
+                # Update pending tool uses based on the latest assistant message
+                self.pending_tool_uses.clear()
+                for content_item in self.messages[latest_assistant_idx].get('content', []):
+                    if isinstance(content_item, dict) and "toolUse" in content_item:
+                        tool_use_id = content_item["toolUse"].get("toolUseId")
+                        if tool_use_id:
+                            self.pending_tool_uses.add(tool_use_id)
+                            self.tool_calls[tool_use_id] = content_item["toolUse"]
+                
+                # Set the processing flag since we know we have pending tool uses
+                self.pending_processing = True
+                
+                # Log that we performed repair
+                logger.info(f"Repaired message sequence, now have {len(self.pending_tool_uses)} pending tool uses")
     
     def remove_cache_checkpoint(self, messages: list) -> list:
         """
@@ -355,10 +451,17 @@ class ConversationManager:
         
         return messages
     
+    def clear_pending_flags(self):
+        """Clear the pending flags but keep the message history"""
+        self.pending_tool_uses.clear()
+        self.pending_processing = False
+        logger.debug("Cleared pending flags")
+    
     def reset(self):
         """Reset the conversation state"""
         self.messages = []
         self.tool_calls = {}
         self.pending_tool_uses = set()
         self.used_tool_results = set()
+        self.pending_processing = False
         logger.debug("Conversation manager reset")

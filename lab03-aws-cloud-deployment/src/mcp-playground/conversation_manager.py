@@ -3,7 +3,7 @@ import logging
 import json
 
 # Configure logging
-logging.basicConfig(level=logging.DEBUG, 
+logging.basicConfig(level=logging.INFO, 
                    format='%(asctime)s [%(levelname)s] %(name)s: %(message)s')
 logger = logging.getLogger(__name__)
 
@@ -19,7 +19,7 @@ class ConversationManager:
         self.tool_calls = {}  # Map of tool_use_id to tool call details
         self.pending_tool_uses = set()  # Set of tool_use_ids that need results
         self.used_tool_results = set()  # Track which tool results have been used
-        logger.debug("ConversationManager initialized")
+        logger.info("ConversationManager initialized")
     
     def add_user_message(self, content: str) -> Dict[str, Any]:
         """
@@ -41,7 +41,7 @@ class ConversationManager:
         }
         
         self.messages.append(message)
-        logger.debug(f"Added user message: {content[:50]}...")
+        logger.info(f"Added user message: {content[:50]}...")
         return message
     
     def add_assistant_message(self, content: str) -> Dict[str, Any]:
@@ -64,7 +64,7 @@ class ConversationManager:
         }
         
         self.messages.append(message)
-        logger.debug(f"Added assistant message: {content[:50]}...")
+        logger.info(f"Added assistant message: {content[:50]}...")
         return message
     
     def process_bedrock_response(self, response: Dict[str, Any]) -> Dict[str, Any]:
@@ -77,7 +77,7 @@ class ConversationManager:
         Returns:
             A dict containing extracted data including any tool uses
         """
-        logger.debug(f"Processing Bedrock response with stop reason: {response.get('stopReason', 'unknown')}")
+        logger.info(f"Processing Bedrock response with stop reason: {response.get('stopReason', 'unknown')}")
         
         result = {
             "text": "",
@@ -88,18 +88,18 @@ class ConversationManager:
         # Get output message
         if "output" in response and "message" in response["output"]:
             message = response["output"]["message"]
-            logger.debug(f"Found output message with content length: {len(message.get('content', []))}")
+            logger.info(f"Found output message with content length: {len(message.get('content', []))}")
             
             # Process each content block
             for content in message.get("content", []):
                 if "text" in content:
                     result["text"] += content["text"]
-                    logger.debug(f"Found text content: {content['text'][:50]}...")
+                    logger.info(f"Found text content: {content['text'][:50]}...")
                 elif "toolUse" in content:
                     tool_use = content["toolUse"]
                     tool_use_id = tool_use.get("toolUseId")
                     
-                    logger.debug(f"Found toolUse with ID: {tool_use_id}, name: {tool_use.get('name')}")
+                    logger.info(f"Found toolUse with ID: {tool_use_id}, name: {tool_use.get('name')}")
                     
                     # Track this tool use
                     self.tool_calls[tool_use_id] = tool_use
@@ -111,14 +111,14 @@ class ConversationManager:
                 self.add_assistant_message(result["text"])
         
         # Log the overall status
-        logger.debug(f"Processed Bedrock response. Text length: {len(result['text'])}, "
+        logger.info(f"Processed Bedrock response. Text length: {len(result['text'])}, "
                     f"Tool uses: {len(result['tool_uses'])}, "
                     f"Current pending tool uses: {len(self.pending_tool_uses)}")
         
-        # Also log the current full message history for debugging
-        logger.debug(f"Current message count: {len(self.messages)}")
+        # Also log the current full message history
+        logger.info(f"Current message count: {len(self.messages)}")
         for i, msg in enumerate(self.messages):
-            logger.debug(f"Message {i}: role={msg.get('role')}, content_items={len(msg.get('content', []))}")
+            logger.info(f"Message {i}: role={msg.get('role')}, content_items={len(msg.get('content', []))}")
         
         return result
     
@@ -131,20 +131,21 @@ class ConversationManager:
             result: The result from the tool
             
         Returns:
-            The created tool result message
+            The created tool result message or None if invalid
         """
         # Validate tool_use_id exists in pending tools
         if tool_use_id not in self.pending_tool_uses:
             logger.warning(f"Adding result for unknown or already processed tool use ID: {tool_use_id}")
             logger.warning(f"Pending tool use IDs: {self.pending_tool_uses}")
             logger.warning(f"All tracked tool use IDs: {list(self.tool_calls.keys())}")
+            return None  # Return early if tool_use_id is invalid
         
         # Check if we've already added a result for this tool
         if tool_use_id in self.used_tool_results:
             logger.warning(f"Tool result for {tool_use_id} has already been added - skipping")
             return None
             
-        logger.debug(f"Adding tool result for {tool_use_id}: {json.dumps(result)[:100]}...")
+        logger.info(f"Adding tool result for {tool_use_id}: {json.dumps(result)[:100]}...")
         
         # Format content for the tool result
         content_value = result.get("content", "")
@@ -174,7 +175,7 @@ class ConversationManager:
         
         if tool_use_id in self.pending_tool_uses:
             self.pending_tool_uses.remove(tool_use_id)
-            logger.debug(f"Removed {tool_use_id} from pending tool uses. Remaining: {len(self.pending_tool_uses)}")
+            logger.info(f"Removed {tool_use_id} from pending tool uses. Remaining: {len(self.pending_tool_uses)}")
         
         return tool_result_message
     
@@ -185,7 +186,7 @@ class ConversationManager:
         Returns:
             List of messages in the format expected by Bedrock
         """
-        # Debug message counts
+        # Count different message types for logging
         assistant_count = sum(1 for m in self.messages if m.get('role') == 'assistant')
         user_count = sum(1 for m in self.messages if m.get('role') == 'user')
         tool_result_count = sum(
@@ -193,10 +194,10 @@ class ConversationManager:
             if m.get('role') == 'user' and any('toolResult' in c for c in m.get('content', []))
         )
         
-        logger.debug(f"Getting Bedrock messages: {len(self.messages)} total "
+        logger.info(f"Getting Bedrock messages: {len(self.messages)} total "
                     f"({assistant_count} assistant, {user_count} user, {tool_result_count} toolResult)")
         
-        # Also validate the structure for debugging
+        # Validate the structure for debugging
         has_errors = False
         for i, msg in enumerate(self.messages):
             if not isinstance(msg, dict) or 'role' not in msg or 'content' not in msg:
@@ -207,7 +208,7 @@ class ConversationManager:
                 for content in msg.get('content', []):
                     if 'toolResult' in content:
                         tool_use_id = content['toolResult'].get('toolUseId')
-                        logger.debug(f"Message {i} contains toolResult for ID: {tool_use_id}")
+                        logger.info(f"Message {i} contains toolResult for ID: {tool_use_id}")
                         
                         # Verify that this tool_use_id was from the assistant
                         tool_found = False
@@ -294,7 +295,7 @@ class ConversationManager:
             for error in errors:
                 logger.warning(f"Validation error: {error}")
         else:
-            logger.debug("Message flow validation passed")
+            logger.info("Message flow validation passed")
             
         return errors
     
@@ -304,4 +305,4 @@ class ConversationManager:
         self.tool_calls = {}
         self.pending_tool_uses = set()
         self.used_tool_results = set()
-        logger.debug("Conversation manager reset")
+        logger.info("Conversation manager reset")

@@ -15,8 +15,11 @@ import logging
 from mcp_client import McpClient, ConnectionError
 from conversation_manager import ConversationManager
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
+# Configure logging with more detail
+logging.basicConfig(
+    level=logging.DEBUG,  # Changed to DEBUG for more detailed logs
+    format='%(asctime)s [%(levelname)s] %(name)s: %(message)s'
+)
 logger = logging.getLogger(__name__)
 
 # Configure page
@@ -122,6 +125,7 @@ async def fetch_tools_from_server(url: str, auth_token: str = None, timeout: flo
         
         # Get tools
         tools = await client.get_tools()
+        logger.debug(f"Fetched {len(tools)} tools from {url}")
         
         # Process tools
         tool_count = 0
@@ -131,20 +135,25 @@ async def fetch_tools_from_server(url: str, auth_token: str = None, timeout: flo
                 tool_name = tool.name
                 schema = getattr(tool, 'inputSchema', {})
                 description = getattr(tool, 'description', '')
+                logger.debug(f"Processing tool (object): {tool_name}")
             elif isinstance(tool, dict):
                 tool_name = tool.get('name', '')
                 schema = tool.get('inputSchema', {})
                 description = tool.get('description', '')
+                logger.debug(f"Processing tool (dict): {tool_name}")
             else:
                 # Try a last resort approach
                 try:
                     tool_name = str(tool)
                     schema = {}
                     description = "Unknown tool format"
+                    logger.debug(f"Processing tool (unknown format): {tool_name}")
                 except:
+                    logger.warning(f"Could not process tool: {tool}")
                     continue  # Skip this tool
                 
             if not tool_name:
+                logger.warning("Found tool without a name, skipping")
                 continue  # Skip tools without a name
             
             # Add to tools data list
@@ -156,6 +165,7 @@ async def fetch_tools_from_server(url: str, auth_token: str = None, timeout: flo
             
             tool_count += 1
             
+        logger.debug(f"Successfully processed {tool_count} tools from {url}")
         return tools_data, tool_count
         
     except ConnectionError as e:
@@ -181,9 +191,11 @@ async def execute_mcp_tool(url: str, tool_name: str, params: Dict, auth_token: s
     try:
         # Initialize the client
         await client.init()
+        logger.debug(f"Executing tool {tool_name} on {url} with params: {json.dumps(params)}")
         
         # Call tool
         result_text = await client.call_tool(tool_name, params)
+        logger.debug(f"Tool {tool_name} execution result: {result_text}")
         
         # Return success
         return {"content": result_text}, None
@@ -232,6 +244,7 @@ def discover_tools(server_name: str, server_url: str, auth_token: str = None) ->
                 'schema': tool_data['schema'],
                 'description': tool_data['description']
             }
+            logger.debug(f"Added tool mapping: {bedrock_name} -> {server_name}.{tool_name}")
         
         return tool_count
     except Exception as e:
@@ -246,6 +259,7 @@ def call_tool(bedrock_tool_name: str, params: Dict) -> Dict:
     All Streamlit operations happen here in the main thread.
     """
     if bedrock_tool_name not in st.session_state.tool_mapping:
+        logger.warning(f"Unknown tool requested: {bedrock_tool_name}")
         return {"error": f"Unknown tool: {bedrock_tool_name}"}
     
     mapping = st.session_state.tool_mapping[bedrock_tool_name]
@@ -253,12 +267,17 @@ def call_tool(bedrock_tool_name: str, params: Dict) -> Dict:
     method_name = mapping['method']
     auth_token = mapping.get('token')
     
+    logger.debug(f"Call_tool - Bedrock tool: {bedrock_tool_name}, MCP method: {method_name}, Server: {server_url}")
+    
     try:
         # Call the pure data function
         result, error = run_async(execute_mcp_tool(server_url, method_name, params, auth_token))
         
         if error:
+            logger.error(f"Tool execution error: {error}")
             return {"error": error}
+            
+        logger.debug(f"Tool execution successful - Result: {json.dumps(result)}")
         return result
     except Exception as e:
         logger.error(f"Error in call_tool for {bedrock_tool_name}: {e}")
@@ -287,6 +306,7 @@ def get_bedrock_tool_config() -> Dict:
         
         tool_specs.append(tool_spec)
     
+    logger.debug(f"Generated Bedrock tool config with {len(tool_specs)} tools")
     return {"tools": tool_specs}
 
 # Form reset callback
@@ -565,6 +585,11 @@ elif mode == "Agentic Bedrock Chat":
                     # Get messages for Bedrock
                     messages = st.session_state.conversation_manager.get_bedrock_messages()
                     
+                    # Log the messages being sent to Bedrock for debugging
+                    logger.debug("Sending messages to Bedrock:")
+                    for i, msg in enumerate(messages):
+                        logger.debug(f"Message {i}: {json.dumps(msg)}")
+                    
                     # Create system prompt
                     system_prompt = [
                         {"text": "You are a helpful assistant with access to MCP servers for retail operations. "
@@ -577,6 +602,7 @@ elif mode == "Agentic Bedrock Chat":
                     temperature = 0.7
                     
                     # Call Bedrock
+                    logger.debug(f"Calling Bedrock converse with model={model_id} and {len(messages)} messages")
                     response = bedrock_runtime.converse(
                         modelId=model_id,
                         messages=messages,
@@ -588,8 +614,12 @@ elif mode == "Agentic Bedrock Chat":
                         toolConfig=tool_config
                     )
                     
+                    # Log the Bedrock response for debugging 
+                    logger.debug(f"Bedrock response: {json.dumps(response, default=str)}")
+                    
                     # Process the response
                     result = st.session_state.conversation_manager.process_bedrock_response(response)
+                    logger.debug(f"Processed Bedrock response: {json.dumps(result, default=str)}")
                     
                     # If there's text content, show it
                     if result["text"]:
@@ -604,10 +634,12 @@ elif mode == "Agentic Bedrock Chat":
                                 tool_name = tool_use.get("name")
                                 tool_input = tool_use.get("input", {})
                                 
+                                logger.debug(f"Executing tool: {tool_name} (ID: {tool_use_id}) with input: {json.dumps(tool_input)}")
                                 status.update(label=f"Executing {tool_name}...", state="running")
                                 
                                 # Call the tool
                                 tool_result = call_tool(tool_name, tool_input)
+                                logger.debug(f"Tool execution result: {json.dumps(tool_result)}")
                                 
                                 # Add result to conversation
                                 st.session_state.conversation_manager.add_tool_result(tool_use_id, tool_result)
@@ -618,9 +650,16 @@ elif mode == "Agentic Bedrock Chat":
                         
                         # Continue the conversation with tool results
                         with st.spinner("Processing tool results..."):
+                            # Get updated messages with tool results
                             messages = st.session_state.conversation_manager.get_bedrock_messages()
                             
+                            # Log the updated messages for debugging
+                            logger.debug("Sending messages with tool results to Bedrock:")
+                            for i, msg in enumerate(messages):
+                                logger.debug(f"Message {i}: {json.dumps(msg)}")
+                            
                             # Call Bedrock again
+                            logger.debug(f"Calling Bedrock converse again with tool results")
                             response2 = bedrock_runtime.converse(
                                 modelId=model_id,
                                 messages=messages,
@@ -631,6 +670,9 @@ elif mode == "Agentic Bedrock Chat":
                                 },
                                 toolConfig=tool_config
                             )
+                            
+                            # Log the second Bedrock response
+                            logger.debug(f"Second Bedrock response: {json.dumps(response2, default=str)}")
                             
                             # Process the response
                             result2 = st.session_state.conversation_manager.process_bedrock_response(response2)
@@ -644,7 +686,8 @@ elif mode == "Agentic Bedrock Chat":
                     st.error(f"Error: {str(e)}")
                     st.sidebar.error(f"Detailed error: {str(e)}")
                     
-                    import traceback
+                    logger.error(f"Bedrock API error: {e}")
+                    logger.error(traceback.format_exc())
                     st.sidebar.code(traceback.format_exc())
 
 # Display commit ID

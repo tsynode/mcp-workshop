@@ -5,10 +5,16 @@ import os
 import subprocess
 import uuid
 import asyncio
+import requests
 from typing import Dict, Any, List
+import traceback
+import logging
+import threading
+from concurrent.futures import ThreadPoolExecutor
 
-from mcp_server_manager import MCPServerManager
-from conversation_manager import ConversationManager
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # Configure page
 st.set_page_config(page_title="Remote MCP Demo", layout="wide")
@@ -40,26 +46,186 @@ bedrock_runtime = boto3.client(
 )
 
 # Initialize session state
-if 'conversation_manager' not in st.session_state:
-    st.session_state.conversation_manager = ConversationManager()
+if 'messages' not in st.session_state:
+    st.session_state.messages = []
 
-if 'server_manager' not in st.session_state:
-    st.session_state.server_manager = MCPServerManager()
+if 'tools' not in st.session_state:
+    st.session_state.tools = []
+
+if 'custom_mcp_servers' not in st.session_state:
+    st.session_state.custom_mcp_servers = {}
+
+# Simplified MCP tool discovery and calling functions
+def discover_tools(server_name, server_url):
+    """
+    Discover tools from a MCP server using the tools/list method
+    Returns the number of tools discovered
+    """
+    try:
+        # Create a tools/list request according to MCP specification
+        list_request = {
+            "jsonrpc": "2.0",
+            "method": "tools/list",
+            "params": {},
+            "id": str(uuid.uuid4())
+        }
+        
+        # Send the request to the MCP server
+        response = requests.post(
+            server_url,
+            json=list_request,
+            headers={
+                'Content-Type': 'application/json',
+                'Accept': 'application/json, text/event-stream'
+            },
+            verify=False,  # For development only
+            timeout=10     # Add timeout to prevent hanging
+        )
+        
+        # Parse the response
+        if response.status_code == 200:
+            result = response.json()
+            if "result" in result and "tools" in result["result"]:
+                tools = result["result"]["tools"]
+                
+                # Store tools with a prefix to avoid name collisions
+                for tool in tools:
+                    tool_name = tool.get('name', '')
+                    # Add server name as prefix for Bedrock
+                    bedrock_name = f"{server_name}_{tool_name.replace('-', '_')}"
+                    
+                    # Store mapping in session state
+                    if 'tool_mapping' not in st.session_state:
+                        st.session_state.tool_mapping = {}
+                        
+                    st.session_state.tool_mapping[bedrock_name] = {
+                        'server': server_name,
+                        'url': server_url,
+                        'method': tool_name,
+                        'schema': tool.get('inputSchema', {}),
+                        'description': tool.get('description', '')
+                    }
+                
+                return len(tools)
+        
+        return 0
+    except Exception as e:
+        logger.error(f"Error discovering tools: {str(e)}")
+        return 0
+
+def call_tool(tool_name, params):
+    """Call a tool by its Bedrock name"""
+    if 'tool_mapping' not in st.session_state:
+        return {"error": "No tools registered"}
+        
+    if tool_name not in st.session_state.tool_mapping:
+        return {"error": f"Unknown tool: {tool_name}"}
+        
+    mapping = st.session_state.tool_mapping[tool_name]
+    server_url = mapping['url']
+    method_name = mapping['method']
     
-    # Register built-in MCP servers
+    try:
+        # Create a standard JSON-RPC 2.0 request
+        mcp_request = {
+            "jsonrpc": "2.0",
+            "method": method_name,
+            "params": params,
+            "id": str(uuid.uuid4())
+        }
+        
+        # Send the request to the MCP server
+        response = requests.post(
+            server_url,
+            json=mcp_request,
+            headers={
+                'Content-Type': 'application/json',
+                'Accept': 'application/json, text/event-stream'
+            },
+            verify=False,  # For development only
+            timeout=10     # Add timeout to prevent hanging
+        )
+        
+        # Parse the response
+        if response.status_code == 200:
+            result = response.json()
+            
+            # Extract tool result
+            if "result" in result and "content" in result["result"]:
+                content = result["result"]["content"]
+                text_content = []
+                
+                for item in content:
+                    if item.get("type") == "text" and "text" in item:
+                        text_content.append(item["text"])
+                
+                if text_content:
+                    return {"content": "\n".join(text_content)}
+                else:
+                    return {"content": json.dumps(result["result"])}
+            else:
+                return result
+        else:
+            return {"error": f"HTTP {response.status_code}: {response.text}"}
+            
+    except Exception as e:
+        logger.error(f"Error calling tool {method_name}: {e}")
+        return {"error": str(e)}
+
+def get_bedrock_tool_config():
+    """Get tool configuration for Bedrock"""
+    if 'tool_mapping' not in st.session_state:
+        return {"tools": []}
+        
+    tool_specs = []
+    
+    for bedrock_name, mapping in st.session_state.tool_mapping.items():
+        server_name = mapping['server']
+        method_name = mapping['method']
+        description = mapping.get('description', '')
+        input_schema = mapping.get('schema', {})
+        
+        # Create tool spec for Bedrock
+        tool_spec = {
+            "toolSpec": {
+                "name": bedrock_name,
+                "description": f"{server_name}: {description}",
+                "inputSchema": {
+                    "json": input_schema
+                }
+            }
+        }
+        
+        tool_specs.append(tool_spec)
+    
+    return {"tools": tool_specs}
+
+# Initialize built-in MCP servers without blocking the UI
+if 'servers_initialized' not in st.session_state:
+    st.session_state.servers_initialized = False
+    
+    # Register built-in servers
+    if 'server_info' not in st.session_state:
+        st.session_state.server_info = {}
+    
+    # Get from environment
     product_server_url = os.environ.get('PRODUCT_MCP_SERVER_URL')
     order_server_url = os.environ.get('ORDER_MCP_SERVER_URL')
     
     if product_server_url:
-        st.session_state.server_manager.register_server('product-server', product_server_url)
-        st.session_state.server_manager.discover_tools('product-server')
+        st.session_state.server_info['product-server'] = {
+            'url': product_server_url,
+            'status': 'pending'
+        }
     
     if order_server_url:
-        st.session_state.server_manager.register_server('order-server', order_server_url)
-        st.session_state.server_manager.discover_tools('order-server')
-
-if 'custom_mcp_servers' not in st.session_state:
-    st.session_state.custom_mcp_servers = {}
+        st.session_state.server_info['order-server'] = {
+            'url': order_server_url,
+            'status': 'pending'
+        }
+    
+    # Mark as initialized
+    st.session_state.servers_initialized = True
 
 # Add model selection in sidebar
 st.sidebar.title("Model Settings")
@@ -92,28 +258,45 @@ with st.sidebar.expander("Add New MCP Server", expanded=False):
     # Test server button
     if st.button("Test Server Connection"):
         if new_server_name and new_server_url:
-            # Create a temporary server manager for testing
-            test_manager = MCPServerManager()
-            if test_manager.register_server(new_server_name, new_server_url):
-                tool_count = test_manager.discover_tools(new_server_name)
-                if tool_count > 0:
-                    st.success(f"✅ Connection successful! Found {tool_count} tools.")
+            try:
+                # Test the MCP server with a tools/list request
+                response = requests.post(
+                    new_server_url,
+                    json={"jsonrpc": "2.0", "method": "tools/list", "params": {}, "id": "test"},
+                    headers={
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json, text/event-stream'
+                    },
+                    verify=False,
+                    timeout=5
+                )
+                
+                if response.status_code == 200:
+                    result = response.json()
+                    if "result" in result and "tools" in result["result"]:
+                        tools = result["result"]["tools"]
+                        st.success(f"✅ Connection successful! Found {len(tools)} tools.")
+                    else:
+                        st.warning("⚠️ Connected but no tools found in response.")
                 else:
-                    st.warning("⚠️ Connected but no tools found.")
-            else:
-                st.error("❌ Failed to connect to server.")
-        else:
-            st.warning("⚠️ Both name and URL are required")
+                    st.error(f"❌ Connection failed: HTTP {response.status_code}")
+            except Exception as e:
+                st.error(f"❌ Connection error: {str(e)}")
     
     # Add server button
     if st.button("Add Server"):
         if new_server_name and new_server_url:
             # Add to session state
             st.session_state.custom_mcp_servers[new_server_name] = new_server_url
-            # Register with the server manager
-            st.session_state.server_manager.register_server(new_server_name, new_server_url)
-            tool_count = st.session_state.server_manager.discover_tools(new_server_name)
-            st.success(f"✅ Added MCP server: {new_server_name} with {tool_count} tools")
+            
+            # Add to server info
+            st.session_state.server_info[new_server_name] = {
+                'url': new_server_url,
+                'status': 'pending'
+            }
+            
+            st.success(f"✅ Added MCP server: {new_server_name}")
+            
             # Clear input fields
             st.session_state.new_server_name = ""
             st.session_state.new_server_url = ""
@@ -129,8 +312,21 @@ if st.session_state.custom_mcp_servers:
             if st.button("Remove", key=f"remove_{server_name}"):
                 # Remove from session state
                 del st.session_state.custom_mcp_servers[server_name]
-                # Remove from server manager
-                st.session_state.server_manager.remove_server(server_name)
+                
+                # Remove from server info
+                if server_name in st.session_state.server_info:
+                    del st.session_state.server_info[server_name]
+                
+                # Remove tools from tool mapping
+                if 'tool_mapping' in st.session_state:
+                    to_remove = []
+                    for tool_name, mapping in st.session_state.tool_mapping.items():
+                        if mapping['server'] == server_name:
+                            to_remove.append(tool_name)
+                    
+                    for tool_name in to_remove:
+                        del st.session_state.tool_mapping[tool_name]
+                
                 st.rerun()
 
 # MCP Tool Discovery
@@ -140,26 +336,33 @@ st.sidebar.title("MCP Tool Discovery")
 if st.sidebar.button("Discover All Tools"):
     with st.sidebar.status("Discovering tools...", expanded=True) as status:
         # Discover tools from all servers
-        for server_name in st.session_state.server_manager.servers.keys():
-            tool_count = st.session_state.server_manager.discover_tools(server_name)
+        for server_name, info in st.session_state.server_info.items():
+            status.update(f"Discovering tools from {server_name}...", state="running")
+            server_url = info['url']
+            tool_count = discover_tools(server_name, server_url)
+            
+            # Update server status
+            st.session_state.server_info[server_name]['status'] = 'ready' if tool_count > 0 else 'error'
+            st.session_state.server_info[server_name]['tool_count'] = tool_count
+            
             status.update(f"Found {tool_count} tools in {server_name}", state="running")
         
         status.update(label="Tool discovery complete!", state="complete")
 
-# Display available servers and tools
-for server_name, server_info in st.session_state.server_manager.servers.items():
-    tool_count = len(server_info.get('tools', {}))
-    status = server_info.get('status', 'unknown')
+# Display server status
+for server_name, info in st.session_state.server_info.items():
+    status = info.get('status', 'pending')
+    tool_count = info.get('tool_count', 0)
     
-    if tool_count > 0:
+    if status == 'ready' and tool_count > 0:
         st.sidebar.success(f"✅ {server_name}: {tool_count} tools available")
-    elif status == 'error' or status == 'connection_error':
+    elif status == 'error':
         st.sidebar.error(f"❌ {server_name}: Connection error")
     else:
-        st.sidebar.warning(f"⚠️ {server_name}: No tools discovered")
+        st.sidebar.warning(f"⚠️ {server_name}: Discovery pending")
 
 # Get tool configuration for Bedrock
-tool_config = st.session_state.server_manager.get_bedrock_tool_config()
+tool_config = get_bedrock_tool_config()
 
 # Debug tool configuration
 with st.sidebar.expander("Bedrock Tool Configuration", expanded=False):
@@ -176,7 +379,7 @@ if mode == "Manual MCP Tool Tester":
     st.subheader("MCP Tool Tester")
     
     # Get all server names
-    server_names = list(st.session_state.server_manager.servers.keys())
+    server_names = list(st.session_state.server_info.keys())
     
     if not server_names:
         st.warning("No MCP servers registered. Add servers in the sidebar.")
@@ -184,19 +387,22 @@ if mode == "Manual MCP Tool Tester":
         # Let user choose server
         selected_server = st.selectbox("Select MCP Server", server_names)
         
-        # Get tools for this server
-        server_info = st.session_state.server_manager.servers.get(selected_server, {})
-        tools = server_info.get('tools', {})
+        # Get tools for this server from tool mapping
+        server_tools = {}
+        if 'tool_mapping' in st.session_state:
+            for bedrock_name, mapping in st.session_state.tool_mapping.items():
+                if mapping['server'] == selected_server:
+                    server_tools[mapping['method']] = mapping
         
-        if not tools:
+        if not server_tools:
             st.warning(f"No tools discovered for {selected_server}. Click 'Discover All Tools' in the sidebar.")
         else:
             # Let user select tool
-            tool_names = list(tools.keys())
+            tool_names = list(server_tools.keys())
             selected_tool = st.selectbox("Select Tool", tool_names)
             
             # Show tool info
-            tool_info = tools.get(selected_tool, {})
+            tool_info = server_tools.get(selected_tool, {})
             st.write("Tool Information:")
             st.json(tool_info)
             
@@ -213,14 +419,7 @@ if mode == "Manual MCP Tool Tester":
                     bedrock_tool_name = f"{selected_server}_{selected_tool.replace('-', '_')}"
                     
                     with st.spinner("Executing tool..."):
-                        # Create event loop for async execution
-                        loop = asyncio.new_event_loop()
-                        asyncio.set_event_loop(loop)
-                        
-                        # Call the tool
-                        result = loop.run_until_complete(
-                            st.session_state.server_manager.call_tool(bedrock_tool_name, tool_input)
-                        )
+                        result = call_tool(bedrock_tool_name, tool_input)
                         
                         # Display result
                         st.write("Tool Result:")
@@ -247,40 +446,31 @@ elif mode == "Agentic Bedrock Chat":
         """)
     else:
         # Display chat history
-        for message in st.session_state.conversation_manager.messages:
-            role = message.get("role", "")
-            content = ""
-            
-            # Extract text content
-            if "content" in message:
-                for item in message["content"]:
-                    if isinstance(item, dict) and "text" in item:
-                        content += item["text"]
-                    elif isinstance(item, dict) and "toolResult" in item:
-                        tool_result = item["toolResult"]
-                        content += f"[Tool Result: {tool_result.get('toolUseId', 'unknown')}]"
-            
-            # Show in chat UI
-            if content and role in ["user", "assistant"]:
-                with st.chat_message(role):
-                    st.markdown(content)
+        for message in st.session_state.messages:
+            with st.chat_message(message["role"]):
+                st.markdown(message["content"])
         
         # Chat input
         user_input = st.chat_input("Type your message here...")
         if user_input:
-            # Add to conversation history
-            st.session_state.conversation_manager.add_user_message(user_input)
+            # Add to chat history
+            st.session_state.messages.append({"role": "user", "content": user_input})
             
             # Show in chat UI
             with st.chat_message("user"):
                 st.markdown(user_input)
             
+            # Prepare messages for Bedrock
+            bedrock_messages = []
+            for msg in st.session_state.messages:
+                bedrock_messages.append({
+                    "role": msg["role"],
+                    "content": [{"text": msg["content"]}]
+                })
+            
             # Process with Bedrock
             with st.spinner("Claude is thinking..."):
                 try:
-                    # Get messages for Bedrock
-                    messages = st.session_state.conversation_manager.get_bedrock_messages()
-                    
                     # Create system prompt
                     system_prompt = [
                         {"text": "You are a helpful assistant with access to MCP servers for retail operations. "
@@ -295,7 +485,7 @@ elif mode == "Agentic Bedrock Chat":
                     # Call Bedrock
                     response = bedrock_runtime.converse(
                         modelId=model_id,
-                        messages=messages,
+                        messages=bedrock_messages,
                         system=system_prompt,
                         inferenceConfig={
                             "maxTokens": max_tokens,
@@ -304,48 +494,83 @@ elif mode == "Agentic Bedrock Chat":
                         toolConfig=tool_config
                     )
                     
-                    # Process the response
-                    result = st.session_state.conversation_manager.process_bedrock_response(response)
+                    # Extract text from response
+                    assistant_text = ""
+                    tool_uses = []
                     
-                    # If there's text content, show it
-                    if result["text"]:
+                    if "output" in response and "message" in response["output"]:
+                        message = response["output"]["message"]
+                        for content in message.get("content", []):
+                            if "text" in content:
+                                assistant_text += content["text"]
+                            elif "toolUse" in content:
+                                tool_uses.append(content["toolUse"])
+                    
+                    # If text content, show it
+                    if assistant_text:
+                        # Add to chat history
+                        st.session_state.messages.append({"role": "assistant", "content": assistant_text})
                         with st.chat_message("assistant"):
-                            st.markdown(result["text"])
+                            st.markdown(assistant_text)
                     
-                    # If there are tool uses, process them
-                    if result["tool_uses"]:
+                    # If tool uses, handle them
+                    if tool_uses:
                         with st.status("Executing tools...", expanded=False) as status:
-                            for tool_use in result["tool_uses"]:
+                            tool_results = []
+                            
+                            for tool_use in tool_uses:
                                 tool_use_id = tool_use.get("toolUseId")
                                 tool_name = tool_use.get("name")
                                 tool_input = tool_use.get("input", {})
                                 
                                 status.update(f"Executing {tool_name}...", state="running")
                                 
-                                # Create event loop for async execution
-                                loop = asyncio.new_event_loop()
-                                asyncio.set_event_loop(loop)
+                                # Call tool
+                                result = call_tool(tool_name, tool_input)
                                 
-                                # Call the tool
-                                tool_result = loop.run_until_complete(
-                                    st.session_state.server_manager.call_tool(tool_name, tool_input)
-                                )
+                                # Format tool result for Bedrock
+                                if "content" in result:
+                                    content_value = result["content"]
+                                    result_content = {"text": content_value} if isinstance(content_value, str) else {"json": content_value}
+                                else:
+                                    result_content = {"json": result}
                                 
-                                # Add result to conversation
-                                st.session_state.conversation_manager.add_tool_result(tool_use_id, tool_result)
+                                tool_result = {
+                                    "role": "user",
+                                    "content": [
+                                        {
+                                            "toolResult": {
+                                                "toolUseId": tool_use_id,
+                                                "content": [result_content]
+                                            }
+                                        }
+                                    ]
+                                }
                                 
+                                tool_results.append(tool_result)
                                 status.update(f"Tool {tool_name} executed", state="running")
                             
                             status.update("All tools executed", state="complete")
                         
-                        # Continue the conversation with tool results
-                        with st.spinner("Processing tool results..."):
-                            messages = st.session_state.conversation_manager.get_bedrock_messages()
+                        # If we have tool results, continue the conversation
+                        if tool_results:
+                            # Update messages with assistant response and tool results
+                            updated_messages = bedrock_messages.copy()
                             
-                            # Call Bedrock again
-                            response2 = bedrock_runtime.converse(
+                            # Add assistant message with tool use
+                            updated_messages.append({
+                                "role": "assistant",
+                                "content": message.get("content", [])
+                            })
+                            
+                            # Add tool results
+                            for tool_result in tool_results:
+                                updated_messages.append(tool_result)
+                            
+                            # Call Bedrock again with tool results
+                            final_response = bedrock_runtime.converse(
                                 modelId=model_id,
-                                messages=messages,
+                                messages=updated_messages,
                                 system=system_prompt,
                                 inferenceConfig={
                                     "maxTokens": max_tokens,
@@ -354,19 +579,30 @@ elif mode == "Agentic Bedrock Chat":
                                 toolConfig=tool_config
                             )
                             
-                            # Process the response
-                            result2 = st.session_state.conversation_manager.process_bedrock_response(response2)
+                            # Extract final text
+                            final_text = ""
+                            if "output" in final_response and "message" in final_response["output"]:
+                                output_message = final_response["output"]["message"]
+                                for content in output_message.get("content", []):
+                                    if "text" in content:
+                                        final_text += content["text"]
                             
-                            # Show the final response
-                            if result2["text"]:
+                            # Display final response
+                            if final_text:
+                                # Add to chat history
+                                st.session_state.messages.append({"role": "assistant", "content": final_text})
                                 with st.chat_message("assistant"):
-                                    st.markdown(result2["text"])
+                                    st.markdown(final_text)
                     
                 except Exception as e:
-                    st.error(f"Error: {str(e)}")
-                    st.sidebar.error(f"Detailed error: {str(e)}")
+                    error_msg = f"Error: {str(e)}"
+                    st.error(error_msg)
                     
-                    import traceback
+                    # Add error to chat history
+                    st.session_state.messages.append({"role": "assistant", "content": error_msg})
+                    
+                    # Log detailed error
+                    st.sidebar.error("Detailed error:")
                     st.sidebar.code(traceback.format_exc())
 
 # Display commit ID

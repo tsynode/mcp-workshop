@@ -11,10 +11,8 @@ from typing import Dict, Any, List
 import traceback
 import logging
 
-# Import the new MCP client - import from the correct location
-from mcp_client import MCPClient
-
-# Import the conversation manager
+# Import the complete McpClient class
+from mcp_client import McpClient, ConnectionError
 from conversation_manager import ConversationManager
 
 # Configure logging
@@ -103,18 +101,18 @@ if 'server_info' not in st.session_state:
             'tool_count': 0
         }
 
-# Async functions using the new MCP client
+# Async functions using the complete McpClient
 
 async def discover_server_tools(server_name, server_url, auth_token=None):
-    """Discover tools from a server using the MCP client with new API"""
+    """Discover tools from a server using the MCP client"""
     # Create client with timeout
-    client = MCPClient(server_url, auth_token, timeout=10.0)
+    client = McpClient(server_url, auth_token, timeout=10.0)
     
     try:
-        # Initialize client - this replaces the old connect() call
+        # Initialize the client
         await client.init()
         
-        # Get tools
+        # Get tools using the get_tools method
         tools = await client.get_tools()
         
         # Store tools in session state
@@ -157,25 +155,33 @@ async def discover_server_tools(server_name, server_url, auth_token=None):
             tool_count += 1
         
         return tool_count
+    except ConnectionError as e:
+        logger.error(f"Connection error discovering tools from {server_name}: {e}")
+        return 0
     except Exception as e:
         logger.error(f"Error discovering tools from {server_name}: {e}")
         return 0
     finally:
-        # Always cleanup - this replaces the old disconnect() call
+        # Always cleanup
         await client.cleanup()
 
 async def call_mcp_tool(server_url, tool_name, params, auth_token=None):
-    """Call a tool using the MCP client with new API"""
+    """Call a tool using the MCP client"""
     # Create client with timeout
-    client = MCPClient(server_url, auth_token, timeout=10.0)
+    client = McpClient(server_url, auth_token, timeout=10.0)
     
     try:
-        # Initialize client
+        # Initialize the client
         await client.init()
         
-        # Call tool
-        result = await client.call_tool(tool_name, params)
-        return result
+        # Call tool - the result is returned as a string directly
+        result_text = await client.call_tool(tool_name, params)
+        
+        # Convert to dict format for compatibility with the existing app
+        return {"content": result_text}
+    except ConnectionError as e:
+        logger.error(f"Connection error calling tool {tool_name}: {e}")
+        return {"error": str(e)}
     except Exception as e:
         logger.error(f"Error calling tool {tool_name}: {e}")
         return {"error": str(e)}

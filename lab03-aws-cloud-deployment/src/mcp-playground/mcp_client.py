@@ -1,149 +1,154 @@
-import asyncio
-import logging
-from typing import Dict, Any, List, Optional
 from mcp.client.streamable_http import streamablehttp_client
 from mcp import ClientSession
+from mcp.types import Tool, TextContent, Resource, Prompt
+from typing import List, Dict, Any, Optional
+import logging
+import asyncio
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-class MCPClient:
-    """
-    A client for the Model Context Protocol (MCP) using the streamable HTTP transport.
-    This provides a robust, standards-compliant implementation for connecting to
-    remote MCP servers.
-    """
-    
-    def __init__(self, url: str, auth_token: str = None):
-        """
-        Initialize the MCP client with a server URL and optional auth token.
-        
-        Args:
-            url: The URL of the MCP server
-            auth_token: Optional authentication token
-        """
+class ConnectionError(Exception):
+    """Raised when connection to the server fails."""
+    pass
+
+class McpClient:
+    def __init__(self, url: str, auth_token: str = None, timeout: float = 10.0):
         self.url = url
         self.session = None
+        self.headers = {
+            'Authorization': f'Bearer {auth_token}' if auth_token else None,
+        }
         self.stream_context = None
         self.read_stream = None
         self.write_stream = None
-        self.headers = {}
-        
-        if auth_token:
-            self.headers['Authorization'] = f'Bearer {auth_token}'
-        
-        # Required headers for MCP protocol
-        self.headers['Accept'] = 'application/json, text/event-stream'
+        self.timeout = timeout
 
-    async def connect(self):
-        """Connect to the MCP server and initialize the session"""
+    async def init(self):
         try:
-            self.stream_context = streamablehttp_client(
-                self.url,
-                headers=self.headers
-            )
-            self.read_stream, self.write_stream, _ = await self.stream_context.__aenter__()
-            self.session = ClientSession(self.read_stream, self.write_stream)
-            await self.session.__aenter__()
-            await self.session.initialize()
-            return True
-        except Exception as e:
-            logger.error(f"Error connecting to MCP server at {self.url}: {e}")
-            return False
+            async with asyncio.timeout(self.timeout):
+                logger.info(f"Connecting to {self.url}")
+                self.stream_context = streamablehttp_client(
+                    self.url,
+                    headers=self.headers
+                )
+                self.read_stream, self.write_stream, _ = await self.stream_context.__aenter__()
 
-    async def disconnect(self):
-        """Disconnect from the MCP server and clean up resources"""
-        if self.session:
-            try:
+                logger.info("Initializing session")
+                self.session = ClientSession(self.read_stream, self.write_stream)
+                await self.session.__aenter__()
+                await self.session.initialize()
+
+                logger.info("Connection established successfully")
+                return self
+
+        except asyncio.TimeoutError:
+            logger.error(f"Connection timed out after {self.timeout} seconds")
+            await self.cleanup()
+            raise ConnectionError(f"Connection timed out after {self.timeout} seconds")
+        except Exception as e:
+            logger.error(f"Initialization error: {e}")
+            await self.cleanup()
+            raise
+
+    async def cleanup(self):
+        try:
+            if self.session:
                 await self.session.__aexit__(None, None, None)
-            except Exception as e:
-                logger.error(f"Error closing MCP session: {e}")
-        
-        if self.stream_context:
-            try:
+            if self.stream_context:
                 await self.stream_context.__aexit__(None, None, None)
-            except Exception as e:
-                logger.error(f"Error closing stream context: {e}")
-
-    async def list_tools(self) -> List[Dict[str, Any]]:
-        """
-        Get the list of available tools from the MCP server.
-        
-        Returns:
-            A list of tool definitions
-        """
-        if not self.session:
-            raise RuntimeError("Not connected to MCP server. Call connect() first.")
-            
-        try:
-            response = await self.session.list_tools()
-            return response.tools if response and hasattr(response, 'tools') else []
         except Exception as e:
-            logger.error(f"Error listing tools: {e}")
-            return []
+            logger.error(f"Error during cleanup: {e}")
 
-    async def call_tool(self, tool_name: str, params: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Call a tool on the MCP server.
-        
-        Args:
-            tool_name: The name of the tool to call
-            params: Parameters to pass to the tool
-            
-        Returns:
-            The tool call result
-        """
-        if not self.session:
-            raise RuntimeError("Not connected to MCP server. Call connect() first.")
-            
+    async def get_tools(self) -> List[Tool]:
         try:
-            logger.info(f"Calling tool: {tool_name} with params: {params}")
-            result = await self.session.call_tool(tool_name, params)
-            
-            # Process the result based on content type
-            if hasattr(result, 'content') and result.content:
-                content_texts = []
-                for content in result.content:
-                    if hasattr(content, 'text') and content.text:
-                        content_texts.append(content.text)
-                
-                response = "\n".join(content_texts)
-                return {"content": response}
-            else:
-                return {"content": str(result)}
-                
+            async with asyncio.timeout(self.timeout):
+                response = await self.session.list_tools()
+                return response.tools
+        except asyncio.TimeoutError:
+            logger.error(f"Get tools operation timed out after {self.timeout} seconds")
+            raise
+        except Exception as e:
+            logger.error(f"Error getting tools list: {e}")
+            raise
+
+    async def call_tool(self, tool_name: str, params: Dict[str, Any]) -> str:
+        try:
+            async with asyncio.timeout(self.timeout):
+                logger.info(f"Calling tool: {tool_name} with params: {params}")
+                result = await self.session.call_tool(tool_name, params)
+                logger.info(f"Raw tool call result: {result}")
+
+                if hasattr(result, 'content') and result.content:
+                    for content in result.content:
+                        if isinstance(content, TextContent):
+                            return content.text
+                return str(result)
+        except asyncio.TimeoutError:
+            logger.error(f"Tool call operation timed out after {self.timeout} seconds")
+            raise
         except Exception as e:
             logger.error(f"Error calling tool {tool_name}: {e}")
-            return {"error": str(e)}
+            raise
 
-async def test_mcp_client(url: str):
-    """Test function to verify the MCP client works correctly"""
-    client = MCPClient(url)
-    try:
-        connected = await client.connect()
-        if not connected:
-            print(f"Failed to connect to {url}")
-            return
-            
-        tools = await client.list_tools()
-        print(f"Available tools: {[tool.name for tool in tools]}")
-        
-        if tools:
-            result = await client.call_tool(
-                tools[0].name,
-                {}  # Empty params for test
-            )
-            print(f"Tool call result: {result}")
-            
-    finally:
-        await client.disconnect()
+    async def get_resources(self) -> List[Resource]:
+        try:
+            async with asyncio.timeout(self.timeout):
+                response = await self.session.list_resources()
+                logger.info(f"Raw resources response: {response}")
+                if isinstance(response, list):
+                    return [Resource(**r) if isinstance(r, dict) else r for r in response]
+                elif hasattr(response, 'resources'):
+                    return response.resources
+                else:
+                    raise ValueError("Unexpected response format for resources")
+        except asyncio.TimeoutError:
+            logger.error(f"Get resources operation timed out after {self.timeout} seconds")
+            raise
+        except Exception as e:
+            logger.error(f"Error getting resources list: {e}")
+            raise
 
-# Example usage
-if __name__ == "__main__":
-    import sys
-    
-    if len(sys.argv) < 2:
-        print("Usage: python mcp_client.py <server_url>")
-        sys.exit(1)
-        
-    asyncio.run(test_mcp_client(sys.argv[1]))
+    async def get_resource(self, resource_id: str) -> Optional[Resource]:
+        try:
+            async with asyncio.timeout(self.timeout):
+                resource = await self.session.read_resource(resource_id)
+                logger.info(f"Raw resource response: {resource}")
+                return Resource(**resource) if isinstance(resource, dict) else resource
+        except asyncio.TimeoutError:
+            logger.error(f"Get resource operation timed out after {self.timeout} seconds")
+            raise
+        except Exception as e:
+            logger.error(f"Error getting resource {resource_id}: {e}")
+            raise
+
+    async def get_prompts(self) -> List[Prompt]:
+        try:
+            async with asyncio.timeout(self.timeout):
+                response = await self.session.list_prompts()
+                logger.info(f"Raw prompts response: {response}")
+                if isinstance(response, list):
+                    return [Prompt(**p) if isinstance(p, dict) else p for p in response]
+                elif hasattr(response, 'prompts'):
+                    return response.prompts
+                else:
+                    raise ValueError("Unexpected response format for prompts")
+        except asyncio.TimeoutError:
+            logger.error(f"Get prompts operation timed out after {self.timeout} seconds")
+            raise
+        except Exception as e:
+            logger.error(f"Error getting prompts list: {e}")
+            raise
+
+    async def get_prompt(self, prompt_id: str) -> Optional[Prompt]:
+        try:
+            async with asyncio.timeout(self.timeout):
+                prompt = await self.session.get_prompt(prompt_id)
+                logger.info(f"Raw prompt response: {prompt}")
+                return Prompt(**prompt) if isinstance(prompt, dict) else prompt
+        except asyncio.TimeoutError:
+            logger.error(f"Get prompt operation timed out after {self.timeout} seconds")
+            raise
+        except Exception as e:
+            logger.error(f"Error getting prompt {prompt_id}: {e}")
+            raise

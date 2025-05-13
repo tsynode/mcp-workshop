@@ -7,7 +7,7 @@ import uuid
 import asyncio
 import threading
 from concurrent.futures import ThreadPoolExecutor
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Tuple
 import traceback
 import logging
 
@@ -88,7 +88,7 @@ if 'server_info' not in st.session_state:
     if product_server_url:
         st.session_state.server_info['product-server'] = {
             'url': product_server_url,
-            'token': None,  # Initially no token for built-in servers
+            'token': None,
             'status': 'registered',
             'tool_count': 0
         }
@@ -96,26 +96,34 @@ if 'server_info' not in st.session_state:
     if order_server_url:
         st.session_state.server_info['order-server'] = {
             'url': order_server_url,
-            'token': None,  # Initially no token for built-in servers
+            'token': None,
             'status': 'registered',
             'tool_count': 0
         }
 
-# Async functions using the complete McpClient
+# ------------------------------------------------
+# PURE DATA FUNCTIONS - No Streamlit dependencies
+# ------------------------------------------------
 
-async def discover_server_tools(server_name, server_url, auth_token=None):
-    """Discover tools from a server using the MCP client"""
-    # Create client with timeout
-    client = McpClient(server_url, auth_token, timeout=10.0)
+async def fetch_tools_from_server(url: str, auth_token: str = None, timeout: float = 10.0) -> Tuple[List[Dict], int]:
+    """
+    Pure data function to fetch tools from an MCP server.
+    No Streamlit references here!
+    
+    Returns:
+        Tuple of (list of tool data, count of tools)
+    """
+    client = McpClient(url, auth_token, timeout=timeout)
+    tools_data = []
     
     try:
         # Initialize the client
         await client.init()
         
-        # Get tools using the get_tools method
+        # Get tools
         tools = await client.get_tools()
         
-        # Store tools in session state
+        # Process tools
         tool_count = 0
         for tool in tools:
             # Handle both object and dictionary formats
@@ -139,67 +147,91 @@ async def discover_server_tools(server_name, server_url, auth_token=None):
             if not tool_name:
                 continue  # Skip tools without a name
             
-            # Create bedrock-compatible name
-            bedrock_name = f"{server_name}_{tool_name.replace('-', '_')}"
-            
-            # Store tool mapping
-            st.session_state.tool_mapping[bedrock_name] = {
-                'server': server_name,
-                'url': server_url,
-                'token': auth_token,  # Store token with the tool mapping
-                'method': tool_name,
+            # Add to tools data list
+            tools_data.append({
+                'name': tool_name,
                 'schema': schema,
                 'description': description
-            }
+            })
             
             tool_count += 1
+            
+        return tools_data, tool_count
         
-        return tool_count
     except ConnectionError as e:
-        logger.error(f"Connection error discovering tools from {server_name}: {e}")
-        return 0
+        logger.error(f"Connection error fetching tools from {url}: {e}")
+        return [], 0
     except Exception as e:
-        logger.error(f"Error discovering tools from {server_name}: {e}")
-        return 0
+        logger.error(f"Error fetching tools from {url}: {e}")
+        return [], 0
     finally:
         # Always cleanup
         await client.cleanup()
 
-async def call_mcp_tool(server_url, tool_name, params, auth_token=None):
-    """Call a tool using the MCP client"""
-    # Create client with timeout
-    client = McpClient(server_url, auth_token, timeout=10.0)
+async def execute_mcp_tool(url: str, tool_name: str, params: Dict, auth_token: str = None, timeout: float = 10.0) -> Tuple[Dict, str]:
+    """
+    Pure data function to execute a tool on an MCP server.
+    No Streamlit references here!
+    
+    Returns:
+        Tuple of (result dict or None, error string or None)
+    """
+    client = McpClient(url, auth_token, timeout=timeout)
     
     try:
         # Initialize the client
         await client.init()
         
-        # Call tool - the result is returned as a string directly
+        # Call tool
         result_text = await client.call_tool(tool_name, params)
         
-        # Convert to dict format for compatibility with the existing app
-        return {"content": result_text}
+        # Return success
+        return {"content": result_text}, None
+        
     except ConnectionError as e:
-        logger.error(f"Connection error calling tool {tool_name}: {e}")
-        return {"error": str(e)}
+        error_msg = f"Connection error calling tool {tool_name}: {e}"
+        logger.error(error_msg)
+        return None, error_msg
     except Exception as e:
-        logger.error(f"Error calling tool {tool_name}: {e}")
-        return {"error": str(e)}
+        error_msg = f"Error calling tool {tool_name}: {e}"
+        logger.error(error_msg)
+        return None, error_msg
     finally:
         # Always cleanup
         await client.cleanup()
 
-# Sync wrapper functions for Streamlit
+# ------------------------------------------------
+# STREAMLIT INTERFACE FUNCTIONS
+# ------------------------------------------------
 
-def discover_tools(server_name, server_url, auth_token=None):
-    """Streamlit-friendly wrapper for tool discovery"""
+def discover_tools(server_name: str, server_url: str, auth_token: str = None) -> int:
+    """
+    Streamlit-friendly wrapper for tool discovery.
+    All Streamlit operations happen here in the main thread.
+    """
     try:
-        tool_count = run_async(discover_server_tools(server_name, server_url, auth_token))
+        # Call the pure data function
+        tools_data, tool_count = run_async(fetch_tools_from_server(server_url, auth_token))
         
-        # Update server status
+        # Update server status in session state
         if server_name in st.session_state.server_info:
             st.session_state.server_info[server_name]['status'] = 'ready' if tool_count > 0 else 'error'
             st.session_state.server_info[server_name]['tool_count'] = tool_count
+        
+        # Update tool mapping in session state
+        for tool_data in tools_data:
+            tool_name = tool_data['name']
+            # Create Bedrock-compatible name
+            bedrock_name = f"{server_name}_{tool_name.replace('-', '_')}"
+            
+            st.session_state.tool_mapping[bedrock_name] = {
+                'server': server_name,
+                'url': server_url,
+                'token': auth_token,
+                'method': tool_name,
+                'schema': tool_data['schema'],
+                'description': tool_data['description']
+            }
         
         return tool_count
     except Exception as e:
@@ -208,23 +240,31 @@ def discover_tools(server_name, server_url, auth_token=None):
             st.session_state.server_info[server_name]['status'] = 'error'
         return 0
 
-def call_tool(bedrock_tool_name, params):
-    """Streamlit-friendly wrapper for tool calling"""
+def call_tool(bedrock_tool_name: str, params: Dict) -> Dict:
+    """
+    Streamlit-friendly wrapper for tool calling.
+    All Streamlit operations happen here in the main thread.
+    """
     if bedrock_tool_name not in st.session_state.tool_mapping:
         return {"error": f"Unknown tool: {bedrock_tool_name}"}
     
     mapping = st.session_state.tool_mapping[bedrock_tool_name]
     server_url = mapping['url']
     method_name = mapping['method']
-    auth_token = mapping.get('token')  # Get token from mapping
+    auth_token = mapping.get('token')
     
     try:
-        return run_async(call_mcp_tool(server_url, method_name, params, auth_token))
+        # Call the pure data function
+        result, error = run_async(execute_mcp_tool(server_url, method_name, params, auth_token))
+        
+        if error:
+            return {"error": error}
+        return result
     except Exception as e:
         logger.error(f"Error in call_tool for {bedrock_tool_name}: {e}")
         return {"error": str(e)}
 
-def get_bedrock_tool_config():
+def get_bedrock_tool_config() -> Dict:
     """Get tool configuration for Bedrock"""
     tool_specs = []
     
@@ -253,6 +293,10 @@ def get_bedrock_tool_config():
 def reset_form():
     st.session_state.reset_form = True
     st.rerun()
+
+# ------------------------------------------------
+# UI IMPLEMENTATION
+# ------------------------------------------------
 
 # Add model selection in sidebar
 st.sidebar.title("Model Settings")
@@ -297,11 +341,11 @@ with st.sidebar.expander("Add New MCP Server", expanded=False):
             with st.spinner("Testing connection..."):
                 try:
                     # Test connection using MCP client
-                    result = run_async(discover_server_tools(
+                    result = discover_tools(
                         new_server_name, 
                         new_server_url, 
                         new_server_token if new_server_token else None
-                    ))
+                    )
                     if result > 0:
                         st.success(f"✅ Connection successful! Found {result} tools.")
                     else:

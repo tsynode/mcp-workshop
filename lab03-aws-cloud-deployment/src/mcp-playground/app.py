@@ -480,6 +480,13 @@ st.info("""
 # Application modes
 mode = st.radio("Select Mode", ["Manual MCP Tool Tester", "Agentic Bedrock Chat"])
 
+# Reset conversation when mode changes
+if 'previous_mode' not in st.session_state:
+    st.session_state.previous_mode = mode
+if st.session_state.previous_mode != mode:
+    st.session_state.conversation_manager.reset()
+    st.session_state.previous_mode = mode
+
 if mode == "Manual MCP Tool Tester":
     st.subheader("MCP Tool Tester")
     
@@ -574,6 +581,11 @@ elif mode == "Agentic Bedrock Chat":
         if user_input:
             # Add to conversation history
             st.session_state.conversation_manager.add_user_message(user_input)
+            
+            # Debug: List all available tools
+            all_tools = list(st.session_state.tool_mapping.keys())
+            logger.debug(f"Available tools for this conversation: {all_tools}")
+            st.sidebar.info(f"Tools available: {len(all_tools)}")
             
             # Show in chat UI
             with st.chat_message("user"):

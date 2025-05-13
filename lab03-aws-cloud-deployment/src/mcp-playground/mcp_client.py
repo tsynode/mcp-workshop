@@ -16,9 +16,18 @@ class McpClient:
     def __init__(self, url: str, auth_token: str = None, timeout: float = 10.0):
         self.url = url
         self.session = None
+        # Enhanced headers with proper Authorization format
         self.headers = {
-            'Authorization': f'Bearer {auth_token}' if auth_token else None,
+            'Content-Type': 'application/json',
+            'Accept': 'application/json, text/event-stream',
+            'User-Agent': 'MCP-Client/1.0',
+            'Connection': 'keep-alive'
         }
+        
+        # Add Authorization header if token is provided
+        if auth_token:
+            self.headers['Authorization'] = f'Bearer {auth_token}'
+            
         self.stream_context = None
         self.read_stream = None
         self.write_stream = None
@@ -28,6 +37,7 @@ class McpClient:
         try:
             async with asyncio.timeout(self.timeout):
                 logger.info(f"Connecting to {self.url}")
+                logger.info(f"Using headers: {self.headers}")
                 self.stream_context = streamablehttp_client(
                     self.url,
                     headers=self.headers
@@ -86,10 +96,12 @@ class McpClient:
                 return str(result)
         except asyncio.TimeoutError:
             logger.error(f"Tool call operation timed out after {self.timeout} seconds")
-            raise
+            # Return a friendly error instead of raising exception
+            return f"Operation timed out after {self.timeout} seconds"
         except Exception as e:
             logger.error(f"Error calling tool {tool_name}: {e}")
-            raise
+            # Return a friendly error instead of raising exception
+            return f"Error calling tool {tool_name}: {str(e)}"
 
     async def get_resources(self) -> List[Resource]:
         try:

@@ -24,6 +24,8 @@ class ConversationManager:
         self.pending_tool_uses = set()  # Set of tool_use_ids that need results
         self.used_tool_results = set()  # Track which tool results have been used
         self.pending_processing = False  # Flag to indicate if we're in the middle of processing tools
+        self.max_retries = 3  # Maximum number of retries for failed tool calls
+        self.error_counts = {}  # Track errors per tool to avoid infinite loops
         logger.debug("ConversationManager initialized")
     
     def add_user_message(self, content: str) -> Dict[str, Any]:
@@ -121,6 +123,9 @@ class ConversationManager:
                     self.pending_tool_uses.add(tool_use_id)
                     tool_use_blocks.append(content)
                     result["tool_uses"].append(tool_use)
+                    
+                    # Initialize error count for this tool
+                    self.error_counts[tool_use_id] = 0
             
             # If we have any tool uses, set the processing flag
             if tool_use_blocks:
@@ -183,6 +188,24 @@ class ConversationManager:
         if tool_use_id in self.used_tool_results:
             logger.warning(f"Tool result for {tool_use_id} has already been added - skipping")
             return None
+        
+        # Check if the result indicates an error
+        is_error = False
+        if "error" in result:
+            is_error = True
+            logger.warning(f"Tool result contains error: {result.get('error')}")
+            
+            # Increment error count for this tool
+            self.error_counts[tool_use_id] = self.error_counts.get(tool_use_id, 0) + 1
+            
+            # If we've exceeded max retries, add error result and continue
+            if self.error_counts[tool_use_id] > self.max_retries:
+                logger.error(f"Exceeded maximum retries ({self.max_retries}) for tool {tool_use_id}")
+                # Continue with error result
+            else:
+                # We'll keep the tool in pending_tool_uses for retry
+                logger.info(f"Will retry tool {tool_use_id} (attempt {self.error_counts[tool_use_id]})")
+                return None
             
         logger.info(f"Adding tool result for {tool_use_id}: {json.dumps(result)[:100]}...")
         
@@ -344,7 +367,7 @@ class ConversationManager:
         # Third pass - check if all toolUse have matching toolResult except for the most recent assistant message
         latest_assistant_idx = -1
         for i, msg in enumerate(self.messages):
-            if msg.get('role') == 'assistant':
+            if msg.get("role") == "assistant":
                 latest_assistant_idx = i
         
         for tool_use_id, use_idx in tool_uses.items():
@@ -455,7 +478,35 @@ class ConversationManager:
         """Clear the pending flags but keep the message history"""
         self.pending_tool_uses.clear()
         self.pending_processing = False
+        self.error_counts.clear()  # Reset error counts
         logger.debug("Cleared pending flags")
+    
+    def force_continue(self):
+        """
+        Force conversation to continue by resolving any pending tool uses with error messages.
+        This is used as a fallback when tool processing is stuck.
+        """
+        if not self.pending_tool_uses:
+            return False  # Nothing to do
+            
+        logger.warning(f"Forcing conversation to continue with {len(self.pending_tool_uses)} pending tools")
+        
+        # Create error results for all pending tools
+        for tool_use_id in list(self.pending_tool_uses):
+            tool_use = self.get_tool_use(tool_use_id)
+            tool_name = tool_use.get("name", "unknown") if tool_use else "unknown"
+            
+            # Create a friendly error message
+            error_result = {
+                "content": f"Error: Unable to complete tool {tool_name} due to connectivity issues. Let's continue the conversation."
+            }
+            
+            # Add the error result
+            self.add_tool_result(tool_use_id, error_result)
+            
+        # Ensure all flags are cleared
+        self.clear_pending_flags()
+        return True  # We took action
     
     def reset(self):
         """Reset the conversation state"""
@@ -464,4 +515,5 @@ class ConversationManager:
         self.pending_tool_uses = set()
         self.used_tool_results = set()
         self.pending_processing = False
+        self.error_counts = {}
         logger.debug("Conversation manager reset")

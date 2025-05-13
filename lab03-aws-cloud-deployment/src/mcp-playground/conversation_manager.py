@@ -1,9 +1,13 @@
+"""
+Manages the conversation context for Bedrock conversations with tool usage.
+Tracks messages, tool usage, and ensures proper pairing of tool calls with results.
+"""
 from typing import Dict, Any, List
 import logging
 import json
 
 # Configure logging
-logging.basicConfig(level=logging.INFO, 
+logging.basicConfig(level=logging.DEBUG, 
                    format='%(asctime)s [%(levelname)s] %(name)s: %(message)s')
 logger = logging.getLogger(__name__)
 
@@ -19,7 +23,7 @@ class ConversationManager:
         self.tool_calls = {}  # Map of tool_use_id to tool call details
         self.pending_tool_uses = set()  # Set of tool_use_ids that need results
         self.used_tool_results = set()  # Track which tool results have been used
-        logger.info("ConversationManager initialized")
+        logger.debug("ConversationManager initialized")
     
     def add_user_message(self, content: str) -> Dict[str, Any]:
         """
@@ -41,7 +45,7 @@ class ConversationManager:
         }
         
         self.messages.append(message)
-        logger.info(f"Added user message: {content[:50]}...")
+        logger.debug(f"Added user message: {content[:50]}...")
         return message
     
     def add_assistant_message(self, content: str) -> Dict[str, Any]:
@@ -64,7 +68,7 @@ class ConversationManager:
         }
         
         self.messages.append(message)
-        logger.info(f"Added assistant message: {content[:50]}...")
+        logger.debug(f"Added assistant message: {content[:50]}...")
         return message
     
     def process_bedrock_response(self, response: Dict[str, Any]) -> Dict[str, Any]:
@@ -77,7 +81,7 @@ class ConversationManager:
         Returns:
             A dict containing extracted data including any tool uses
         """
-        logger.info(f"Processing Bedrock response with stop reason: {response.get('stopReason', 'unknown')}")
+        logger.debug(f"Processing Bedrock response with stop reason: {response.get('stopReason', 'unknown')}")
         
         result = {
             "text": "",
@@ -88,37 +92,41 @@ class ConversationManager:
         # Get output message
         if "output" in response and "message" in response["output"]:
             message = response["output"]["message"]
-            logger.info(f"Found output message with content length: {len(message.get('content', []))}")
+            logger.debug(f"Found output message with content length: {len(message.get('content', []))}")
             
             # Process each content block
             for content in message.get("content", []):
                 if "text" in content:
                     result["text"] += content["text"]
-                    logger.info(f"Found text content: {content['text'][:50]}...")
+                    logger.debug(f"Found text content: {content['text'][:50]}...")
                 elif "toolUse" in content:
                     tool_use = content["toolUse"]
                     tool_use_id = tool_use.get("toolUseId")
                     
-                    logger.info(f"Found toolUse with ID: {tool_use_id}, name: {tool_use.get('name')}")
+                    logger.debug(f"Found toolUse with ID: {tool_use_id}, name: {tool_use.get('name')}")
                     
                     # Track this tool use
                     self.tool_calls[tool_use_id] = tool_use
                     self.pending_tool_uses.add(tool_use_id)
                     result["tool_uses"].append(tool_use)
             
-            # Create assistant message if there's text content
-            if result["text"]:
-                self.add_assistant_message(result["text"])
+            # Create assistant message if there's text content or toolUse
+            # This is a critical change: preserve the entire content array, which may include both text and toolUse
+            if message.get("content"):
+                self.messages.append({
+                    "role": "assistant",
+                    "content": message.get("content", [])
+                })
         
         # Log the overall status
-        logger.info(f"Processed Bedrock response. Text length: {len(result['text'])}, "
+        logger.debug(f"Processed Bedrock response. Text length: {len(result['text'])}, "
                     f"Tool uses: {len(result['tool_uses'])}, "
                     f"Current pending tool uses: {len(self.pending_tool_uses)}")
         
-        # Also log the current full message history
-        logger.info(f"Current message count: {len(self.messages)}")
+        # Also log the current full message history for debugging
+        logger.debug(f"Current message count: {len(self.messages)}")
         for i, msg in enumerate(self.messages):
-            logger.info(f"Message {i}: role={msg.get('role')}, content_items={len(msg.get('content', []))}")
+            logger.debug(f"Message {i}: role={msg.get('role')}, content_items={len(msg.get('content', []))}")
         
         return result
     
@@ -131,14 +139,30 @@ class ConversationManager:
             result: The result from the tool
             
         Returns:
-            The created tool result message or None if invalid
+            The created tool result message
         """
         # Validate tool_use_id exists in pending tools
         if tool_use_id not in self.pending_tool_uses:
             logger.warning(f"Adding result for unknown or already processed tool use ID: {tool_use_id}")
             logger.warning(f"Pending tool use IDs: {self.pending_tool_uses}")
             logger.warning(f"All tracked tool use IDs: {list(self.tool_calls.keys())}")
-            return None  # Return early if tool_use_id is invalid
+            
+            # FIX: Verify that the toolUse exists in the message history
+            tool_exists_in_history = False
+            for msg in self.messages:
+                if msg.get("role") == "assistant":
+                    for content_item in msg.get("content", []):
+                        if isinstance(content_item, dict) and "toolUse" in content_item:
+                            if content_item["toolUse"].get("toolUseId") == tool_use_id:
+                                tool_exists_in_history = True
+                                # If exists in history but not in pending, re-add it
+                                self.pending_tool_uses.add(tool_use_id)
+                                self.tool_calls[tool_use_id] = content_item["toolUse"]
+                                break
+            
+            if not tool_exists_in_history:
+                logger.error(f"Cannot add tool result for {tool_use_id} - not found in conversation history")
+                return None
         
         # Check if we've already added a result for this tool
         if tool_use_id in self.used_tool_results:
@@ -175,7 +199,7 @@ class ConversationManager:
         
         if tool_use_id in self.pending_tool_uses:
             self.pending_tool_uses.remove(tool_use_id)
-            logger.info(f"Removed {tool_use_id} from pending tool uses. Remaining: {len(self.pending_tool_uses)}")
+            logger.debug(f"Removed {tool_use_id} from pending tool uses. Remaining: {len(self.pending_tool_uses)}")
         
         return tool_result_message
     
@@ -186,7 +210,7 @@ class ConversationManager:
         Returns:
             List of messages in the format expected by Bedrock
         """
-        # Count different message types for logging
+        # Debug message counts
         assistant_count = sum(1 for m in self.messages if m.get('role') == 'assistant')
         user_count = sum(1 for m in self.messages if m.get('role') == 'user')
         tool_result_count = sum(
@@ -194,7 +218,7 @@ class ConversationManager:
             if m.get('role') == 'user' and any('toolResult' in c for c in m.get('content', []))
         )
         
-        logger.info(f"Getting Bedrock messages: {len(self.messages)} total "
+        logger.debug(f"Getting Bedrock messages: {len(self.messages)} total "
                     f"({assistant_count} assistant, {user_count} user, {tool_result_count} toolResult)")
         
         # Validate the structure for debugging
@@ -208,14 +232,14 @@ class ConversationManager:
                 for content in msg.get('content', []):
                     if 'toolResult' in content:
                         tool_use_id = content['toolResult'].get('toolUseId')
-                        logger.info(f"Message {i} contains toolResult for ID: {tool_use_id}")
+                        logger.debug(f"Message {i} contains toolResult for ID: {tool_use_id}")
                         
                         # Verify that this tool_use_id was from the assistant
                         tool_found = False
                         for prev_msg in self.messages[:i]:
                             if prev_msg.get('role') == 'assistant':
                                 for prev_content in prev_msg.get('content', []):
-                                    if 'toolUse' in prev_content and prev_content['toolUse'].get('toolUseId') == tool_use_id:
+                                    if isinstance(prev_content, dict) and 'toolUse' in prev_content and prev_content['toolUse'].get('toolUseId') == tool_use_id:
                                         tool_found = True
                                         break
                         
@@ -263,14 +287,14 @@ class ConversationManager:
         for i, msg in enumerate(self.messages):
             if msg.get('role') == 'assistant':
                 for content_item in msg.get('content', []):
-                    if 'toolUse' in content_item:
-                        tool_use_id = content_item['toolUse'].get('toolUseId')
+                    if isinstance(content_item, dict) and "toolUse" in content_item:
+                        tool_use_id = content_item["toolUse"].get("toolUseId")
                         if tool_use_id:
                             tool_uses[tool_use_id] = i
             elif msg.get('role') == 'user':
                 for content_item in msg.get('content', []):
-                    if 'toolResult' in content_item:
-                        tool_use_id = content_item['toolResult'].get('toolUseId')
+                    if isinstance(content_item, dict) and "toolResult" in content_item:
+                        tool_use_id = content_item["toolResult"].get("toolUseId")
                         if tool_use_id:
                             tool_results[tool_use_id] = i
         
@@ -295,9 +319,41 @@ class ConversationManager:
             for error in errors:
                 logger.warning(f"Validation error: {error}")
         else:
-            logger.info("Message flow validation passed")
+            logger.debug("Message flow validation passed")
             
         return errors
+    
+    def remove_cache_checkpoint(self, messages: list) -> list:
+        """
+        Remove cachePoint blocks from messages while preserving toolUse blocks.
+        
+        Args:
+            messages (list): A list of message dictionaries.
+            
+        Returns:
+            list: The modified messages list with cachePoint blocks removed but toolUse preserved.
+        """
+        for message in messages:
+            if "content" in message and isinstance(message["content"], list):
+                # First, identify any toolUse blocks that need to be preserved
+                tool_use_blocks = [item for item in message["content"] 
+                                  if isinstance(item, dict) and "toolUse" in item]
+                
+                # Remove cachePoint blocks but preserve everything else
+                message["content"] = [item for item in message["content"] 
+                                     if isinstance(item, dict) and "cachePoint" not in item]
+                
+                # If any toolUse blocks were removed (which shouldn't happen), log and add them back
+                current_tool_use_blocks = [item for item in message["content"] 
+                                          if isinstance(item, dict) and "toolUse" in item]
+                missing_tool_blocks = [block for block in tool_use_blocks 
+                                      if block not in current_tool_use_blocks]
+                
+                if missing_tool_blocks:
+                    logger.warning(f"Found {len(missing_tool_blocks)} toolUse blocks that were incorrectly removed - restoring them")
+                    message["content"].extend(missing_tool_blocks)
+        
+        return messages
     
     def reset(self):
         """Reset the conversation state"""
@@ -305,4 +361,4 @@ class ConversationManager:
         self.tool_calls = {}
         self.pending_tool_uses = set()
         self.used_tool_results = set()
-        logger.info("Conversation manager reset")
+        logger.debug("Conversation manager reset")

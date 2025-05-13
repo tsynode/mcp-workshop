@@ -104,7 +104,6 @@ if 'server_info' not in st.session_state:
 # Async functions using MCPClient
 
 async def discover_server_tools(server_name, server_url, auth_token=None):
-    """Discover tools from a server using the MCP client"""
     client = MCPClient(server_url, auth_token)
     
     try:
@@ -119,22 +118,41 @@ async def discover_server_tools(server_name, server_url, auth_token=None):
         # Store tools in session state
         tool_count = 0
         for tool in tools:
-            tool_name = getattr(tool, 'name', tool.get('name', ''))
-            if tool_name:
-                # Create bedrock-compatible name
-                bedrock_name = f"{server_name}_{tool_name.replace('-', '_')}"
+            # Handle both object and dictionary formats
+            if hasattr(tool, 'name'):
+                tool_name = tool.name
+                schema = getattr(tool, 'inputSchema', {})
+                description = getattr(tool, 'description', '')
+            elif isinstance(tool, dict):
+                tool_name = tool.get('name', '')
+                schema = tool.get('inputSchema', {})
+                description = tool.get('description', '')
+            else:
+                # Try a last resort approach
+                try:
+                    tool_name = str(tool)
+                    schema = {}
+                    description = "Unknown tool format"
+                except:
+                    continue  # Skip this tool
                 
-                # Store tool mapping
-                st.session_state.tool_mapping[bedrock_name] = {
-                    'server': server_name,
-                    'url': server_url,
-                    'token': auth_token,  # Store token with the tool mapping
-                    'method': tool_name,
-                    'schema': getattr(tool, 'inputSchema', tool.get('inputSchema', {})),
-                    'description': getattr(tool, 'description', tool.get('description', ''))
-                }
+            if not tool_name:
+                continue  # Skip tools without a name
                 
-                tool_count += 1
+            # Create bedrock-compatible name
+            bedrock_name = f"{server_name}_{tool_name.replace('-', '_')}"
+            
+            # Store tool mapping
+            st.session_state.tool_mapping[bedrock_name] = {
+                'server': server_name,
+                'url': server_url,
+                'token': auth_token,
+                'method': tool_name,
+                'schema': schema,
+                'description': description
+            }
+            
+            tool_count += 1
         
         return tool_count
     except Exception as e:

@@ -59,6 +59,10 @@ if 'custom_mcp_servers' not in st.session_state:
 if 'tool_mapping' not in st.session_state:
     st.session_state.tool_mapping = {}
 
+# Initialize form reset state if not present
+if 'reset_form' not in st.session_state:
+    st.session_state.reset_form = False
+
 # Helper function to run async code safely in Streamlit
 def run_async(coro):
     """Run an async function from sync code safely"""
@@ -84,6 +88,7 @@ if 'server_info' not in st.session_state:
     if product_server_url:
         st.session_state.server_info['product-server'] = {
             'url': product_server_url,
+            'token': None,  # Initially no token for built-in servers
             'status': 'registered',
             'tool_count': 0
         }
@@ -91,15 +96,16 @@ if 'server_info' not in st.session_state:
     if order_server_url:
         st.session_state.server_info['order-server'] = {
             'url': order_server_url,
+            'token': None,  # Initially no token for built-in servers
             'status': 'registered',
             'tool_count': 0
         }
 
 # Async functions using MCPClient
 
-async def discover_server_tools(server_name, server_url):
+async def discover_server_tools(server_name, server_url, auth_token=None):
     """Discover tools from a server using the MCP client"""
-    client = MCPClient(server_url)
+    client = MCPClient(server_url, auth_token)
     
     try:
         # Connect with timeout
@@ -122,6 +128,7 @@ async def discover_server_tools(server_name, server_url):
                 st.session_state.tool_mapping[bedrock_name] = {
                     'server': server_name,
                     'url': server_url,
+                    'token': auth_token,  # Store token with the tool mapping
                     'method': tool_name,
                     'schema': getattr(tool, 'inputSchema', tool.get('inputSchema', {})),
                     'description': getattr(tool, 'description', tool.get('description', ''))
@@ -137,9 +144,9 @@ async def discover_server_tools(server_name, server_url):
         # Always disconnect
         await client.disconnect()
 
-async def call_mcp_tool(server_url, tool_name, params):
+async def call_mcp_tool(server_url, tool_name, params, auth_token=None):
     """Call a tool using the MCP client"""
-    client = MCPClient(server_url)
+    client = MCPClient(server_url, auth_token)
     
     try:
         # Connect with timeout
@@ -159,10 +166,10 @@ async def call_mcp_tool(server_url, tool_name, params):
 
 # Sync wrapper functions for Streamlit
 
-def discover_tools(server_name, server_url):
+def discover_tools(server_name, server_url, auth_token=None):
     """Streamlit-friendly wrapper for tool discovery"""
     try:
-        tool_count = run_async(discover_server_tools(server_name, server_url))
+        tool_count = run_async(discover_server_tools(server_name, server_url, auth_token))
         
         # Update server status
         if server_name in st.session_state.server_info:
@@ -184,9 +191,10 @@ def call_tool(bedrock_tool_name, params):
     mapping = st.session_state.tool_mapping[bedrock_tool_name]
     server_url = mapping['url']
     method_name = mapping['method']
+    auth_token = mapping.get('token')  # Get token from mapping
     
     try:
-        return run_async(call_mcp_tool(server_url, method_name, params))
+        return run_async(call_mcp_tool(server_url, method_name, params, auth_token))
     except Exception as e:
         logger.error(f"Error in call_tool for {bedrock_tool_name}: {e}")
         return {"error": str(e)}
@@ -216,6 +224,11 @@ def get_bedrock_tool_config():
     
     return {"tools": tool_specs}
 
+# Form reset callback
+def reset_form():
+    st.session_state.reset_form = True
+    st.rerun()
+
 # Add model selection in sidebar
 st.sidebar.title("Model Settings")
 model_id = st.sidebar.selectbox(
@@ -241,16 +254,29 @@ st.sidebar.title("MCP Server Manager")
 
 # Add new MCP server form
 with st.sidebar.expander("Add New MCP Server", expanded=False):
-    new_server_name = st.text_input("Server Name", key="new_server_name")
-    new_server_url = st.text_input("Server URL", key="new_server_url")
+    # Use a form with key based on reset_form state to allow proper resetting
+    form_key = f"server_form_{st.session_state.reset_form}"
     
-    # Test server button
-    if st.button("Test Server Connection"):
+    with st.form(key=form_key):
+        new_server_name = st.text_input("Server Name", key=f"name_{form_key}")
+        new_server_url = st.text_input("Server URL", key=f"url_{form_key}")
+        new_server_token = st.text_input("Auth Token (Optional)", type="password", key=f"token_{form_key}")
+        
+        col1, col2 = st.columns(2)
+        test_submitted = col1.form_submit_button("Test Connection")
+        add_submitted = col2.form_submit_button("Add Server")
+    
+    # Handle form submission outside the form
+    if test_submitted:
         if new_server_name and new_server_url:
             with st.spinner("Testing connection..."):
                 try:
                     # Test connection using MCP client
-                    result = run_async(discover_server_tools(new_server_name, new_server_url))
+                    result = run_async(discover_server_tools(
+                        new_server_name, 
+                        new_server_url, 
+                        new_server_token if new_server_token else None
+                    ))
                     if result > 0:
                         st.success(f"✅ Connection successful! Found {result} tools.")
                     else:
@@ -260,24 +286,23 @@ with st.sidebar.expander("Add New MCP Server", expanded=False):
         else:
             st.warning("⚠️ Both name and URL are required")
     
-    # Add server button
-    if st.button("Add Server"):
+    if add_submitted:
         if new_server_name and new_server_url:
             # Add to session state
             st.session_state.custom_mcp_servers[new_server_name] = new_server_url
             
-            # Add to server info
+            # Add to server info with token if provided
             st.session_state.server_info[new_server_name] = {
                 'url': new_server_url,
+                'token': new_server_token if new_server_token else None,
                 'status': 'registered',
                 'tool_count': 0
             }
             
             st.success(f"✅ Added MCP server: {new_server_name}")
             
-            # Clear input fields
-            st.session_state.new_server_name = ""
-            st.session_state.new_server_url = ""
+            # Reset the form by triggering a rerun with a new form key
+            reset_form()
         else:
             st.warning("⚠️ Both name and URL are required")
 
@@ -287,6 +312,14 @@ if st.session_state.custom_mcp_servers:
     for server_name, server_url in st.session_state.custom_mcp_servers.items():
         with st.sidebar.expander(f"{server_name}", expanded=False):
             st.code(server_url)
+            
+            # Show if token is present
+            token = st.session_state.server_info[server_name].get('token')
+            if token:
+                st.info("Auth token provided ✓")
+            else:
+                st.info("No auth token")
+                
             if st.button("Remove", key=f"remove_{server_name}"):
                 # Remove from session state
                 del st.session_state.custom_mcp_servers[server_name]
@@ -316,9 +349,10 @@ if st.sidebar.button("Discover All Tools"):
         for server_name, info in st.session_state.server_info.items():
             status.update(label=f"Discovering tools from {server_name}...", state="running")
             server_url = info['url']
+            server_token = info.get('token')  # Get token for this server
             
-            # Run discovery
-            tool_count = discover_tools(server_name, server_url)
+            # Run discovery with token if available
+            tool_count = discover_tools(server_name, server_url, server_token)
             status.update(label=f"Found {tool_count} tools in {server_name}", state="running")
         
         status.update(label="Tool discovery complete!", state="complete")
@@ -345,6 +379,14 @@ with st.sidebar.expander("Bedrock Tool Configuration", expanded=False):
 # Main UI
 st.title("Remote MCP Integration Demo")
 st.subheader("Interact with Remote MCP Servers through Claude")
+
+# Pre-filled server suggestion
+st.info("""
+💡 **Tip:** Try adding this known-working MCP server:
+- **Name:** mcp-demo
+- **URL:** http://infras-mcpse-3tf1shydmuay-2131978296.us-east-1.elb.amazonaws.com/mcp
+- **Auth Token:** (Request from your team)
+""")
 
 # Application modes
 mode = st.radio("Select Mode", ["Manual MCP Tool Tester", "Agentic Bedrock Chat"])
@@ -416,6 +458,7 @@ elif mode == "Agentic Bedrock Chat":
         1. Check server URLs in the sidebar
         2. Click the "Discover All Tools" button
         3. Ensure MCP servers are running and accessible
+        4. Make sure you've provided authentication tokens if required
         """)
     else:
         # Display chat history

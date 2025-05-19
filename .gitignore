@@ -30,3 +30,6 @@ Thumbs.db
 .vscode/
 *.swp
 *.swo
+
+**/.claude/settings.local.json
+CLAUDE.md

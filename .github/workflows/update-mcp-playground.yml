@@ -1,0 +1,93 @@
+name: Update MCP Playground Container
+
+on:
+  workflow_dispatch:
+    inputs:
+      aws_region:
+        description: 'AWS Region'
+        required: true
+        default: 'us-west-2'
+        type: choice
+        options:
+          - us-east-1
+          - us-west-2
+          - eu-west-1
+
+jobs:
+  update-mcp-playground:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}  # ADD THIS LINE
+          aws-region: ${{ inputs.aws_region }}
+
+      - name: Get cluster name
+        run: |
+          # Find the MCP Workshop cluster
+          CLUSTERS=$(aws ecs list-clusters)
+          CLUSTER_NAME=$(echo $CLUSTERS | grep -o "mcp-workshop-cluster[^\"]*" | head -1)
+          echo "CLUSTER_NAME=$CLUSTER_NAME" >> $GITHUB_ENV
+          echo "Found ECS cluster: $CLUSTER_NAME"
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v1
+
+      - name: Get ECR repository
+        run: |
+          # Get account ID for constructing ECR repository URL
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          REGION=${{ inputs.aws_region }}
+          
+          # Find the mcp-playground repository
+          REPOS=$(aws ecr describe-repositories --query 'repositories[*].repositoryName' --output text)
+          if [[ $REPOS == *"mcp-playground"* ]]; then
+            echo "Found ECR repository: mcp-playground"
+            echo "MCP_PLAYGROUND_ECR_REPO=${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/mcp-playground" >> $GITHUB_ENV
+          else
+            echo "Error: Could not find mcp-playground ECR repository"
+            exit 1
+          fi
+
+      - name: Build and Push new MCP Playground Docker Image
+        uses: docker/build-push-action@v4
+        with:
+          context: ./lab03-aws-cloud-deployment/src/mcp-playground
+          push: true
+          tags: ${{ env.MCP_PLAYGROUND_ECR_REPO }}:latest
+          no-cache: true
+
+      - name: Update ECS Service
+        run: |
+          # Find the service name
+          SERVICES=$(aws ecs list-services --cluster ${{ env.CLUSTER_NAME }})
+          
+          if [[ $SERVICES == *"mcp-playground"* ]]; then
+            echo "Found ECS service: mcp-playground"
+            
+            # Force new deployment
+            aws ecs update-service --cluster ${{ env.CLUSTER_NAME }} --service mcp-playground --force-new-deployment
+            
+            # Wait for deployment to complete
+            echo "Waiting for service to stabilize..."
+            aws ecs wait services-stable --cluster ${{ env.CLUSTER_NAME }} --services mcp-playground || echo "Warning: Service did not stabilize within the timeout period, but deployment was triggered"
+            
+            echo "✅ MCP Playground updated successfully!"
+          else
+            echo "Error: Could not find mcp-playground service in cluster ${{ env.CLUSTER_NAME }}"
+            exit 1
+          fi
+          
+      - name: Output Success Message
+        run: |
+          echo "✅ MCP Playground has been successfully updated with the new app.py!"
+          echo "The changes should be visible in the Playground within a few minutes."
+          echo "No other infrastructure components were modified."

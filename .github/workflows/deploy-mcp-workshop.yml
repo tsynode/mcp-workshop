@@ -62,23 +62,29 @@ jobs:
 
       - name: Create S3 bucket for Terraform state
         run: |
+          # Convert GitHub username to lowercase for S3 bucket name
+          BUCKET_NAME="mcp-workshop-tf-state-$(echo ${{ github.repository_owner }} | tr '[:upper:]' '[:lower:]')"
+          
           # Create S3 bucket for Terraform state if it doesn't exist
-          aws s3api head-bucket --bucket mcp-workshop-tf-state-${{ github.repository_owner }} 2>/dev/null || \
+          aws s3api head-bucket --bucket $BUCKET_NAME 2>/dev/null || \
           aws s3api create-bucket \
-            --bucket mcp-workshop-tf-state-${{ github.repository_owner }} \
+            --bucket $BUCKET_NAME \
             --region ${{ github.event.inputs.aws_region }} \
             --create-bucket-configuration LocationConstraint=${{ github.event.inputs.aws_region }}
           
           # Enable versioning on the bucket
           aws s3api put-bucket-versioning \
-            --bucket mcp-workshop-tf-state-${{ github.repository_owner }} \
+            --bucket $BUCKET_NAME \
             --versioning-configuration Status=Enabled
+          
+          # Save the bucket name for Terraform Init step
+          echo "BUCKET_NAME=$BUCKET_NAME" >> $GITHUB_ENV
       
       - name: Terraform Init
         working-directory: ${{ env.TF_WORKING_DIR }}
         run: |
           terraform init \
-            -backend-config="bucket=mcp-workshop-tf-state-${{ github.repository_owner }}" \
+            -backend-config="bucket=${{ env.BUCKET_NAME }}" \
             -backend-config="key=lab0${{ github.event.inputs.lab_number }}/terraform.tfstate" \
             -backend-config="region=${{ github.event.inputs.aws_region }}"
 

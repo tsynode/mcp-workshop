@@ -60,11 +60,17 @@ jobs:
         with:
           terraform_version: 1.5.0
 
+      - name: Create lowercase bucket name
+        run: |
+          # Convert GitHub username to lowercase for S3 bucket name
+          BUCKET_NAME="mcp-workshop-tf-state-$(echo ${{ github.repository_owner }} | tr '[:upper:]' '[:lower:]')"
+          echo "BUCKET_NAME=$BUCKET_NAME" >> $GITHUB_ENV
+
       - name: Terraform Init
         working-directory: ${{ env.TF_WORKING_DIR }}
         run: |
           terraform init \
-            -backend-config="bucket=mcp-workshop-tf-state-${{ github.repository_owner }}" \
+            -backend-config="bucket=${{ env.BUCKET_NAME }}" \
             -backend-config="key=lab0${{ github.event.inputs.lab_number }}/terraform.tfstate" \
             -backend-config="region=${{ github.event.inputs.aws_region }}"
 
@@ -124,7 +130,7 @@ jobs:
         run: |
           echo "Cleaning up Terraform state bucket..."
           # Empty the bucket first
-          aws s3 rm s3://mcp-workshop-tf-state-${{ github.repository_owner }} --recursive
+          aws s3 rm s3://${{ env.BUCKET_NAME }} --recursive
           # Delete the bucket
-          aws s3api delete-bucket --bucket mcp-workshop-tf-state-${{ github.repository_owner }} --region ${{ github.event.inputs.aws_region }}
+          aws s3api delete-bucket --bucket ${{ env.BUCKET_NAME }} --region ${{ github.event.inputs.aws_region }}
           echo "S3 bucket deleted successfully."
